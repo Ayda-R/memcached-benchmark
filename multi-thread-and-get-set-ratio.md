@@ -193,7 +193,7 @@ Because Memcached accesses many different memory pages randomly, the CPU cannot 
 | **LLC miss rate** | 20.49% | 17.46% | 3.85% | 6.57% |
 | **dTLB miss rate** | 0.0102% | 0.0244% | 0.0391% | 0.0364% |
 
-Performance Analysis and Scenario Comparison (English Analysis)
+Performance Analysis and Scenario Comparison
 In this section, we analyze the system’s behavior across 4 different scenarios (various combinations of server and client threads). The key factor in this analysis is that client threads determine the load and incoming traffic to the server.
 Impact of Client Traffic on Processing Volume (instructions and cycles):
 In scenarios s1c1 and s4c1 (where there is only 1 client thread), the number of executed instructions in both cases is around 
@@ -210,6 +210,150 @@ By increasing client threads to 4 (s1c4 and s4c4), the generated traffic surges 
 74
 74
  billion), reflecting the parallel activity of all 4 server threads working at maximum capacity to serve requests.
+ Load Distribution Optimization and Cache Miss Reduction (LLC-load-misses):
+One of the most critical findings is the behavior of the Last Level Cache (LLC) miss rate. When the server has only 1 thread (s1c1 at 
+20.49
+%
+20.49%
+ and s1c4 at 
+17.46
+%
+17.46%
+), the miss rate is significantly high. This means a single thread is accessing a massive volume of memory, causing Cache Thrashing.
+When server threads are increased to 4 threads (s4c1 and s4c4), the miss rate drops dramatically to single digits (
+3.85
+%
+3.85%
+ and 
+6.57
+%
+6.57%
+). The reason is the distribution of the workload and data structures (like hash tables) across 4 physical cores (P-Cores). Each core handles a smaller subset of data, leading to better data retention in the cache and a significantly higher Cache Hit Ratio.
+Level 1 Cache (L1-dcache-loads) and dTLB Behavior:
+L1 cache loads are directly correlated with instruction counts and increase by approximately 3 to 4 times in high-client scenarios.
+Data TLB misses (dTLB-load-misses) remain below 
+0.05
+%
+0.05%
+ across all scenarios. This demonstrates that the OS handles memory page management extremely well, although in s4c4, due to memory access scattering under high traffic, the raw count of these misses peaks (
+12
+12
+ million).
+Branch Prediction Challenges (branch-misses):
+In the maximum traffic scenario (s4c4), branch misses reach their peak (
+45
+45
+ million). Processing multiple network connections concurrently and frequent changes in Memcached’s state machine make the application’s behavior highly unpredictable, leading to more failures in the CPU’s Branch Predictor mechanism.
+
+ Scenario: Performance Analysis under Different Read/Write Workloads (Set:Get Ratios)
+Objective and Purpose
+The goal of this scenario is to evaluate Memcached’s performance and architectural behavior under varying workload characteristics. Real-world applications rarely have a static access pattern; therefore, testing different set (write) to get (read) ratios is crucial to understand system bottlenecks.
+
+We test three specific ratios:
+
+10:90 (10% Set, 90% Get): Simulates a typical read-heavy caching workload (e.g., serving static content, user profiles). This tests the efficiency of the hash table lookups and cache hits.
+50:50 (50% Set, 50% Get): Simulates a balanced workload. This tests the system’s ability to handle frequent cache invalidations and memory allocations simultaneously with read requests.
+90:10 (90% Set, 10% Get): Simulates a write-heavy workload (e.g., session management, real-time analytics). This puts heavy stress on memory allocation, eviction policies (LRU), and internal locking mechanisms.
+Server Setup (Terminal 1)
+This setup remains constant across all three ratio tests.
+
+To ensure isolated and accurate profiling, we first stop any background instances of Memcached and then launch our custom-compiled version pinned to a specific CPU core.
+Command executed in Terminal 1:
+![equal-terminal1](images4/get-set-ratio/equal-terminal1.png)
+
+Balanced Workload (50:50 Set:Get Ratio) - Workflow and Execution
+After starting the Memcached server, we utilize two additional terminals to generate the specific workload and simultaneously profile the server’s hardware events.
+
+Client Setup & Load Generation 
+To simulate a balanced workload where read and write operations are equal, we execute the memtier_benchmark tool in Terminal 3.
+![equal-terminal3](images4/get-set-ratio/equal-terminal4.png)
+Concurrent Performance Profiling 
+Exactly while the benchmark is running , we execute perf stat commands in Terminal 2 to capture the hardware performance counters of the Memcached process.
+![equal-terminal2](images4/get-set-ratio/equal-terminal2.png)
+
+Read-Heavy Workload (1:9 Set:Get Ratio) - Workflow and Execution
+After establishing the Memcached server (pinned to P-Core 2), we use the remaining terminals to generate a read-intensive workload and concurrently profile the server’s hardware events and execution graphs.
+
+Client Setup & Load Generation 
+To simulate a workload predominantly consisting of read operations (90% reads, 10% writes), we execute the memtier_benchmark tool.
+![read-heavy-terminal3](images4/get-set-ratio/read-heavy-terminal4.png)
+Concurrent Performance Profiling
+While the read-heavy benchmark is actively running, we capture both high-level statistical counters and deep-level execution graphs.
+1. Real-time Hardware Counters :
+We use perf stat to capture aggregated hardware performance metrics during the workload execution.
+![read-heavy-terminal2](images4/get-set-ratio/read-heavy-terminal2.png)
+Write-Heavy Workload (9:1 Set:Get Ratio) - Workflow and Execution
+After establishing the Memcached server (pinned to P-Core 2), we use the remaining terminals to generate a write-intensive workload and concurrently profile the server’s hardware events and execution graphs.
+
+Client Setup & Load Generation 
+To simulate a workload predominantly consisting of write operations (90% writes, 10% reads), we execute the memtier_benchmark tool.
+![write-heavy-terminal4](images4/get-set-ratio/write-heavy-terminal4.png)
+Concurrent Performance Profiling
+While the write-heavy benchmark is actively running, we capture both high-level statistical counters and deep-level execution graphs.
+
+1. Real-time Hardware Counters:
+We use perf stat to capture aggregated hardware performance metrics during the workload execution.
+![write-heavy-terminal2](images4/get-set-ratio/write-heavy-terminal2.png)
+| Performance Event | Read-Heavy (1:9) | Balanced (1:1) | Write-Heavy (9:1) |
+| :--- | :--- | :--- | :--- |
+| **cpu_core/cycles/u** | 40,439,539,669 | 54,078,259,853 | 64,620,762,977 |
+| **cpu_core/instructions/u** | 71,103,345,661 | 92,500,623,303 | 113,670,987,062 |
+| **cpu_core/L1-dcache-loads/u** | 25,846,290,418 | 33,399,036,450 | 40,881,558,603 |
+| **cpu_core/L1-icache-load-misses/u** | 5,844,659,095 | 7,177,263,698 | 8,186,898,016 |
+| **cpu_core/LLC-loads/u** | 65,535,744 | 75,265,721 | 85,386,970 |
+| **cpu_core/LLC-load-misses/u** | 4,906,255 (7.49%) | 8,590,467 (11.41%)| 11,701,405 (13.70%)|
+| **cpu_core/dTLB-loads/u** | 25,641,383,090 | 33,176,499,430 | 40,506,007,394 |
+| **cpu_core/dTLB-load-misses/u** | 2,311,198 (0.01%)| 5,020,793 (0.02%) | 7,076,021 (0.02%) |
+| **cpu_core/branch-misses/u** | 9,744,145 | 25,748,934 | 14,984,178 |
+
+Hardware Event Analysis across Set:Get Ratios
+This section analyzes the impact of different Read/Write ratios on the CPU and memory subsystem using perf stat hardware counters. The tests cover Read-Heavy (10% SET, 90% GET), Balanced (50% SET, 50% GET), and Write-Heavy (90% SET, 10% GET) workloads.
+
+1. Computational Overhead (Cycles & Instructions)
+
+There is a clear, linear increase in both cycles/u and instructions/u as the workload shifts from read-heavy to write-heavy.
+
+Reason: In Memcached, a GET operation is relatively inexpensive, primarily involving a hash table lookup. Conversely, a SET operation requires memory allocation (slab allocator), hash table updates, locking mechanisms, and potentially LRU eviction logic. This inherent complexity results in the Write-Heavy scenario executing roughly 60% more instructions than the Read-Heavy scenario.
+2. Cache Hierarchy Performance (L1 & LLC)
+
+L1 Cache: L1-dcache-loads scale proportionally with the number of instructions executed. The higher computational demand of SET operations naturally drives more frequent L1 data cache accesses.
+Last Level Cache (LLC): The LLC-load-misses/u rate reveals a significant trend, increasing from 
+7.49
+%
+7.49%
+ (Read-Heavy) to 
+13.70
+%
+13.70%
+ (Write-Heavy).
+Reason: Read-heavy workloads benefit from high temporal locality; repeatedly accessing the same set of “hot” keys keeps them populated in the LLC. Write-heavy workloads constantly introduce new data (and potentially evict old data), fetching new memory addresses that are not currently cached, thereby significantly increasing the LLC miss rate.
+3. Memory Translation (dTLB)
+
+While the absolute number of dTLB-loads increases alongside L1 cache accesses, the dTLB-load-misses/u rate remains exceptionally low across all scenarios (
+0.01
+%
+0.01%
+ to 
+0.02
+%
+0.02%
+).
+
+Reason: This indicates that the operating system’s page tables and Memcached’s memory management are highly efficient, likely benefiting from HugePages or optimal slab allocation, preventing memory translation from becoming a bottleneck even under heavy write pressure.
+4. Branch Predictability
+
+Interestingly, branch-misses/u peaks in the Balanced (1:1) scenario (approx. 25.7 million) rather than the Write-Heavy scenario (approx. 14.9 million).
+
+Reason: Modern CPU branch predictors excel at recognizing consistent patterns (like executing mostly GET paths or mostly SET paths). The Balanced scenario presents a randomized 50/50 split of read and write requests, breaking predictable execution flows and forcing the CPU’s branch predictor to miscalculate more frequently compared to the more homogenous Read-Heavy and Write-Heavy extremes.
+
+
+
+
+
+
+
+
+
 
 
 
