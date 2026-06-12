@@ -6,10 +6,10 @@
 
 ![System Topology](images4/topology.png)
 
-The environment utilizes a hybrid processor architecture featuring $12$ Processing Units (PUs) and $15$GB of RAM unified under a single NUMA node. The core configuration is as follows:
+The environment utilizes a hybrid processor architecture featuring $12$ Processing Units (PUs) and $15$ GB of RAM unified under a single NUMA node. The core configuration is as follows:
 
-- **Performance Cores (P-Cores):** $4$ physical cores (Core L#$0$ to L#$3$). Each core possesses a dedicated L2 cache ($1280$ KB) and supports Hyper-Threading, providing a total of $8$ logical processors (PU #$0$ to PU #$7$).
-- **Efficient Cores (E-Cores):** $4$ physical cores (Core L#$4$ to L#$7$) without Hyper-Threading (providing $4$ logical processors: PU #$8$ to PU #$11$). These cores share a single, unified L2 cache ($2048$ KB).
+- **Performance Cores (P-Cores):** $4$ physical cores (Core L$0$ to L$3$). Each core possesses a dedicated L2 cache ($1280$ KB) and supports Hyper-Threading, providing a total of $8$ logical processors (PU $0$ to PU $7$).
+- **Efficient Cores (E-Cores):** $4$ physical cores (Core L$4$ to L$7$) without Hyper-Threading (providing $4$ logical processors: PU $8$ to PU $11$). These cores share a single, unified L2 cache ($2048$ KB).
 - **Shared L3 Cache:** A $12$ MB Level $3$ cache shared uniformly across all P-Cores and E-Cores.
 
 ### Hardware Performance Counters & Metric Selection
@@ -47,14 +47,14 @@ The primary goal of these $4$ scenarios is to evaluate the scalability and archi
 ![1v1-terminal1](images4/multi-thread/s1c1-terminal1.png)
 
 We start the Memcached server as the root user on port $11211$, strictly limiting it to a single thread (`-t 1`).
-- **CPU Topology Context:** We used `taskset -c 2` to pin the process to Processing Unit (PU) #$2$. According to our hardware topology (`lstopo`), PU #$2$ is located on Core L#$1$, which is a Performance Core (P-Core). Pinning the process ensures cache locality (L1/L2 caches) and prevents the OS scheduler from migrating the process, which would pollute the CPU cache.
+- **CPU Topology Context:** We used `taskset -c 2` to pin the process to Processing Unit (PU) $2$. According to our hardware topology (`lstopo`), PU $2$ is located on Core L$1$, which is a Performance Core (P-Core). Pinning the process ensures cache locality (L1/L2 caches) and prevents the OS scheduler from migrating the process, which would pollute the CPU cache.
 
 ### Step 2: Generating Load with Memtier Benchmark (Terminal 4)
 
 ![1v1-terminal4](images4/multi-thread/s1c1-terminal4.png)
 
 This command launches the client to simulate traffic. It creates $1$ thread (`-t 1`) with $50$ connections, sending $100,000$ requests per connection with an equal Read/Write ratio (`--ratio=1:1`).
-- **CPU Topology Context:** We pinned the client to CPU #$8$ (`taskset -c 8`). Based on the topology, PU #$8$ is located on Core L#$4$, which is an Efficient Core (E-Core). By placing the client on a completely isolated physical core and a different core cluster, we guarantee that the load generator does not compete with Memcached for L1/L2/L3 caches or CPU cycles.
+- **CPU Topology Context:** We pinned the client to CPU $8$ (`taskset -c 8`). Based on the topology, PU $8$ is located on Core L$4$, which is an Efficient Core (E-Core). By placing the client on a completely isolated physical core and a different core cluster, we guarantee that the load generator does not compete with Memcached for L1/L2/L3 caches or CPU cycles.
 
 ### Step 3: Hardware Event Counting (Terminal 2)
 
