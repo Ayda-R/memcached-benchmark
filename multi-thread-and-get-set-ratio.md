@@ -8,8 +8,8 @@
 
 The environment utilizes a hybrid processor architecture featuring $12$ Processing Units (PUs) and $15$ GB of RAM unified under a single NUMA node. The core configuration is as follows:
 
-- **Performance Cores (P-Cores):** $4$ physical cores (Core L$0$ to L$3$). Each core possesses a dedicated L2 cache ($1280$ KB) and supports Hyper-Threading, providing a total of $8$ logical processors (PU $0$ to PU $7$).
-- **Efficient Cores (E-Cores):** $4$ physical cores (Core L$4$ to L$7$) without Hyper-Threading (providing $4$ logical processors: PU $8$ to PU $11$). These cores share a single, unified L2 cache ($2048$ KB).
+- **Performance Cores (P-Cores):** $4$ physical cores (Core L0 to L3). Each core possesses a dedicated L2 cache ($1280$ KB) and supports Hyper-Threading, providing a total of $8$ logical processors (PU $0$ to PU $7$).
+- **Efficient Cores (E-Cores):** $4$ physical cores (Core L4 to L7) without Hyper-Threading (providing $4$ logical processors: PU $8$ to PU $11$). These cores share a single, unified L2 cache ($2048$ KB).
 - **Shared L3 Cache:** A $12$ MB Level $3$ cache shared uniformly across all P-Cores and E-Cores.
 
 ### Hardware Performance Counters & Metric Selection
@@ -54,7 +54,7 @@ We start the Memcached server as the root user on port $11211$, strictly limitin
 ![1v1-terminal4](images4/multi-thread/s1c1-terminal4.png)
 
 This command launches the client to simulate traffic. It creates $1$ thread (`-t 1`) with $50$ connections, sending $100,000$ requests per connection with an equal Read/Write ratio (`--ratio=1:1`).
-- **CPU Topology Context:** We pinned the client to CPU $8$ (`taskset -c 8`). Based on the topology, PU $8$ is located on Core L$4$, which is an Efficient Core (E-Core). By placing the client on a completely isolated physical core and a different core cluster, we guarantee that the load generator does not compete with Memcached for L1/L2/L3 caches or CPU cycles.
+- **CPU Topology Context:** We pinned the client to CPU $8$ (`taskset -c 8`). Based on the topology, PU $8$ is located on Core L4, which is an Efficient Core (E-Core). By placing the client on a completely isolated physical core and a different core cluster, we guarantee that the load generator does not compete with Memcached for L1/L2/L3 caches or CPU cycles.
 
 ### Step 3: Hardware Event Counting (Terminal 2)
 
