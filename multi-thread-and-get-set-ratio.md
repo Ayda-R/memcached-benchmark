@@ -178,6 +178,23 @@ Main Hotspot: assoc_find / Memory Allocators
 What it is: Again, hash table lookups (assoc_find) and memory management operations.
 Because Memcached accesses many different memory pages randomly, the CPU cannot cache all the page translations in the TLB. Every time a TLB miss occurs, the CPU must ask the OS to walk the page tables to find the physical address, adding significant latency on top of the actual memory fetch.
 
+| Event | Scenario A (1server&1client) | Scenario B (1server&4clients) | Scenario C (4servers&1client) | Scenario D (4servers&4clients) |
+|-------|----------------|----------------|----------------|----------------|
+| `cycles` | 14,531,968,664 | 57,066,495,758 | 17,642,738,058 | 74,554,408,070 |
+| `instructions` | 25,695,473,247 | 92,475,058,226 | 25,628,988,937 | 98,343,132,618 |
+| `L1-dcache-loads` | 9,132,122,261 | 33,434,476,200 | 9,241,623,284 | 35,276,551,172 |
+| `L1-icache-load-misses`* | 2,256,663,659 | 7,143,770,357 | 2,436,476,681 | 8,715,470,797 |
+| `LLC-loads` | 1,784,944 | 81,749,587 | 24,115,445 | 181,090,372 |
+| `LLC-load-misses` | 365,672 | 14,272,948 | 927,325 | 11,902,507 |
+| `dTLB-loads` | 9,087,251,635 | 33,259,081,492 | 9,090,831,675 | 35,285,879,239 |
+| `dTLB-load-misses` | 925,127 | 8,124,247 | 3,549,738 | 12,831,720 |
+| `branch-misses` | 6,988,214 | 29,258,736 | 15,280,709 | 45,012,475 |
+| **IPC** (ins/cycle) | 1.77 | 1.62 | 1.45 | 1.32 |
+| **LLC miss rate** | 20.49% | 17.46% | 3.85% | 6.57% |
+| **dTLB miss rate** | 0.0102% | 0.0244% | 0.0391% | 0.0364% |
+
+
+
 
 
 
