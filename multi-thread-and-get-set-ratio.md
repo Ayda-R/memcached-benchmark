@@ -193,7 +193,23 @@ Because Memcached accesses many different memory pages randomly, the CPU cannot 
 | **LLC miss rate** | 20.49% | 17.46% | 3.85% | 6.57% |
 | **dTLB miss rate** | 0.0102% | 0.0244% | 0.0391% | 0.0364% |
 
-
+Performance Analysis and Scenario Comparison (English Analysis)
+In this section, we analyze the system’s behavior across 4 different scenarios (various combinations of server and client threads). The key factor in this analysis is that client threads determine the load and incoming traffic to the server.
+Impact of Client Traffic on Processing Volume (instructions and cycles):
+In scenarios s1c1 and s4c1 (where there is only 1 client thread), the number of executed instructions in both cases is around 
+25
+25
+ billion. This indicates that simply increasing server threads has no impact since the workload is light, causing the server to experience underutilization.
+By increasing client threads to 4 (s1c4 and s4c4), the generated traffic surges drastically, causing CPU instructions to jump to over 
+92
+92
+ - 
+98
+98
+ billion. In s4c4, we observe the highest cycle consumption (
+74
+74
+ billion), reflecting the parallel activity of all 4 server threads working at maximum capacity to serve requests.
 
 
 
