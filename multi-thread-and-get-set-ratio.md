@@ -294,17 +294,20 @@ While the write-heavy benchmark is actively running, we capture both high-level 
 1. Real-time Hardware Counters:
 We use perf stat to capture aggregated hardware performance metrics during the workload execution.
 ![write-heavy-terminal2](images4/get-set-ratio/write-heavy-terminal2.png)
-| Performance Event | Read-Heavy (1:9) | Balanced (1:1) | Write-Heavy (9:1) |
-| :--- | :--- | :--- | :--- |
-| **cpu_core/cycles/u** | 40,439,539,669 | 54,078,259,853 | 64,620,762,977 |
-| **cpu_core/instructions/u** | 71,103,345,661 | 92,500,623,303 | 113,670,987,062 |
-| **cpu_core/L1-dcache-loads/u** | 25,846,290,418 | 33,399,036,450 | 40,881,558,603 |
-| **cpu_core/L1-icache-load-misses/u** | 5,844,659,095 | 7,177,263,698 | 8,186,898,016 |
-| **cpu_core/LLC-loads/u** | 65,535,744 | 75,265,721 | 85,386,970 |
-| **cpu_core/LLC-load-misses/u** | 4,906,255 (7.49%) | 8,590,467 (11.41%)| 11,701,405 (13.70%)|
-| **cpu_core/dTLB-loads/u** | 25,641,383,090 | 33,176,499,430 | 40,506,007,394 |
-| **cpu_core/dTLB-load-misses/u** | 2,311,198 (0.01%)| 5,020,793 (0.02%) | 7,076,021 (0.02%) |
-| **cpu_core/branch-misses/u** | 9,744,145 | 25,748,934 | 14,984,178 |
+| Event | Read-Heavy (1:9) | Equal/Balanced (1:1) | Write-Heavy (9:1) |
+|-------|------------------|----------------------|-------------------|
+| `cycles` | 40,439,539,669 | 54,078,259,853 | 64,620,762,977 |
+| `instructions` | 71,103,345,661 | 92,500,623,303 | 113,670,987,062 |
+| `L1-dcache-loads` | 25,846,290,418 | 33,399,036,450 | 40,881,558,603 |
+| `L1-icache-load-misses` | 5,844,659,095 | 7,177,263,698 | 8,186,898,016 |
+| `LLC-loads` | 65,535,744 | 75,265,721 | 85,386,970 |
+| `LLC-load-misses` | 4,906,255 | 8,590,467 | 11,701,405 |
+| `dTLB-loads` | 25,641,383,090 | 33,176,499,430 | 40,506,007,394 |
+| `dTLB-load-misses` | 2,311,198 | 5,020,793 | 7,076,021 |
+| `branch-misses` | 9,744,145 | 25,748,934 | 14,984,178 |
+| **LLC miss rate** | 7.49% | 11.41% | 13.70% |
+| **dTLB miss rate** | 0.01% | 0.02% | 0.02% |
+
 
 Hardware Event Analysis across Set:Get Ratios
 This section analyzes the impact of different Read/Write ratios on the CPU and memory subsystem using perf stat hardware counters. The tests cover Read-Heavy (10% SET, 90% GET), Balanced (50% SET, 50% GET), and Write-Heavy (90% SET, 10% GET) workloads.
