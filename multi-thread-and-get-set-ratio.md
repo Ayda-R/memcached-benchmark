@@ -1,0 +1,206 @@
+# Advanced Memcached Profiling on Hybrid Architecture
+
+---
+
+## Hardware Topology Analysis
+![System Topology](images4/topology.png)
+
+The environment utilizes a hybrid processor architecture featuring 12 Processing Units (PUs) and 15GB of RAM unified under a single NUMA node. The core configuration is as follows:
+
+- **Performance Cores (P-Cores):** 4 physical cores (Core L#0 to L#3). Each core possesses a dedicated L2 cache (1280 KB) and supports Hyper-Threading, providing a total of 8 logical processors (PU #0 to PU #7).
+- **Efficient Cores (E-Cores):** 4 physical cores (Core L#4 to L#7) without Hyper-Threading (providing 4 logical processors: PU #8 to PU #11). These cores share a single, unified L2 cache (2048 KB).
+- **Shared L3 Cache:** A 12 MB Level 3 cache shared uniformly across all P-Cores and E-Cores.
+
+### Hardware Performance Counters & Metric Selection
+The selected events with the `u/` suffix (User-space) measure various aspects of CPU performance:
+- `cycles/u` & `instructions/u`: CPU cycles and executed instructions (used to calculate IPC and core efficiency).
+- `L1-dcache-loads/u`: L1 data cache accesses, indicating the volume of data processing.
+- `L1-icache-load-misses/u`: L1 instruction cache misses, showing delays in instruction fetching.
+- `LLC-loads/u` & `LLC-load-misses/u`: Last Level Cache (L3) accesses and misses. LLC misses result in high-latency RAM access.
+- `dTLB-loads/u` & `dTLB-load-misses/u`: Data TLB performance in virtual-to-physical address translation.
+- `branch-misses/u`: Branch prediction failures causing pipeline flushes.
+- `cs:u` & `page-faults:u`: Context switches and page faults to monitor OS-level interruptions.
+
+> **Note on Precision:** CPUs feature a limited number of Hardware Performance Counters. Requesting too many simultaneous events forces `perf` to use Time Multiplexing, resulting in estimated values (indicated by <100% time coverage). By splitting the events into two distinct groups, it was ensured that the hardware counter limits were not exceeded, guaranteeing that all metrics were recorded with 100% absolute precision, eliminating statistical estimations.
+
+---
+
+## Overall Purpose of the Scenarios
+The primary goal of these 4 scenarios is to evaluate the scalability and architectural behavior of Memcached under varying workloads. 
+
+### Summary of the 4 Scenarios
+- **Scenario A (1 Server vs 1 Client - 1v1):** The Baseline. Evaluates Memcached’s raw single-thread performance without any inter-thread synchronization overhead or contention.
+- **Scenario B (1 Server vs 4 Clients - 1v4):** Single-thread Stress Test. Pushes a single Memcached thread to its absolute limits by generating heavy concurrent load from multiple client cores to identify the bottleneck point.
+- **Scenario C (4 Servers vs 1 Client - 4v1):** Synchronization Overhead Test. Tests how a multi-threaded Memcached server behaves under a light load. It helps identify overheads caused by thread locking and internal management when parallel processing isn’t strictly necessary.
+- **Scenario D (4 Servers vs 4 Clients - 4v4):** Full Scalability Test. Evaluates Memcached’s true parallel processing capabilities under heavy load, revealing how well it scales across multiple P-Cores and how it utilizes the shared L3 cache.
+
+## Scenario 1: 1 Server Thread vs. 1 Client Thread (1v1)
+
+### Step 1: Initializing the Memcached Server (Terminal 1)
+![1v1-terminal1](images4/multi-thread/s1c1-terminal1.png)
+
+We start the Memcached server as the root user on port 11211, strictly limiting it to a single thread (`-t 1`).
+- **CPU Topology Context:** We used `taskset -c 2` to pin the process to Processing Unit (PU) #2. According to our hardware topology (`lstopo`), PU #2 is located on Core L#1, which is a Performance Core (P-Core). Pinning the process ensures cache locality (L1/L2 caches) and prevents the OS scheduler from migrating the process, which would pollute the CPU cache.
+
+### Step 2: Generating Load with Memtier Benchmark (Terminal 4)
+![1v1-terminal4](images4/multi-thread/s1c1-terminal4.png)
+
+This command launches the client to simulate traffic. It creates 1 thread (`-t 1`) with 50 connections, sending 100,000 requests per connection with an equal Read/Write ratio (`--ratio=1:1`).
+- **CPU Topology Context:** We pinned the client to CPU #8 (`taskset -c 8`). Based on the topology, PU #8 is located on Core L#4, which is an Efficient Core (E-Core). By placing the client on a completely isolated physical core and a different core cluster, we guarantee that the load generator does not compete with Memcached for L1/L2/L3 caches or CPU cycles.
+
+### Step 3: Hardware Event Counting (Terminal 2)
+![1v1-terminal2](images4/multi-thread/s1c1-terminal2.png)
+
+While the benchmark was running, we executed `perf stat` sequentially to count exact hardware events.
+
+### Step 4: Profiling with Perf Record
+Simultaneously (in another test run), we captured profiling data using `perf record` to map the events to source code functions via frame pointers (`--call-graph fp`).
+
+---
+
+## FlameGraph Analysis (1v1 Scenario)
+
+### 1. CPU Cycles Analysis
+![1v1-flamegraph-cycles](images4/multi-thread/1flame_cache_cpu_core_cycles_u.svg)
+- **Main Hotspot:** The `drive_machine` function, leading into `process_command` and `assoc_find`.
+- **Reason & Functionality:** Memcached uses an event-driven architecture. `drive_machine` is the core event loop. The CPU spends most of its time in `process_command` (parsing client requests like GET/SET) and `assoc_find` (looking up the key in the hash table). This is a sign of a healthy architecture where CPU cycles are spent on the core business logic rather than overhead.
+
+### 2. Last Level Cache (LLC) Misses Analysis
+![1v1-flamegraph-llc-miss](images4/multi-thread/1flame_cache_cpu_core_LLC-load-misses_u.svg)
+- **Main Hotspot:** The `assoc_find` function.
+- **Reason & Functionality:** `assoc_find` traverses the large Memcached hash table. Due to the random access nature of key lookups, the required memory addresses are rarely found in the CPU’s Last-Level Cache (L3). This results in Cache Misses, forcing the CPU to fetch data directly from the slower Main Memory (RAM), which is the primary performance bottleneck for in-memory stores.
+
+### 3. Data TLB Misses Analysis
+![1v1-flamegraph-dtlb-miss](images4/multi-thread/1flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+- **Main Hotspot:** Item retrieval (`do_item_get`) and lookup functions (`assoc_find`).
+- **Reason & Functionality:** The TLB (Translation Lookaside Buffer) is a small cache for virtual-to-physical address translations. Because Memcached accesses scattered memory locations (different memory pages) across a huge memory pool, the TLB capacity is frequently exceeded. TLB misses force the CPU to perform costly Page Table Walks, adding OS-level overhead to memory lookups.
+
+---
+
+## Scenario 2: 1 Server Thread vs. 4 Client Threads (1v4)
+In this scenario, the goal is to evaluate the performance of a single server core (Memcached) under high load generated by multiple client threads.
+
+### Server Setup (Terminal 1)
+![1v4-terminal1](images4/multi-thread/s1c4-terminal1.png)
+
+Existing services were stopped first. Then, Memcached was launched using `taskset` pinned strictly to logical processor 2 with a single thread (`-t 1`).
+- Core number 2 is a Performance Core (P-Core). We pin the server here to ensure it gets maximum processing power and full access to the large L3 cache.
+
+### Client Setup (Terminal 4)
+![1v4-terminal4](images4/multi-thread/s1c4-terminal4.png)
+
+The `memtier_benchmark` tool was executed with 4 threads (`-t 4`) and pinned to logical processors 8, 9, 10, and 11.
+- Cores 8 through 11 are Efficiency Cores (E-Cores). By placing the client threads on these cores, we completely isolate the load generator from the server. This prevents resource contention and ensures the clients do not pollute the P-Core’s cache or steal CPU cycles from the server.
+
+### Gathering Overall Stats with `perf stat` (Terminal 2)
+![1v4-terminal2](images4/multi-thread/s1c4-terminal2.png)
+
+Concurrently with the benchmark, `perf stat` was attached to the Memcached Process ID. It was run in two separate groups to collect overall hardware event statistics (such as CPU cycles, cache misses, and TLB misses) during the benchmark run.
+
+### Profiling Events with `perf record` (Terminal 3)
+To generate FlameGraphs later, `perf record` was used to capture detailed call graphs. To avoid time-multiplexing inaccuracies due to limited hardware performance counters, this command was executed in two separate runs: one for CPU/Cache events and another for TLB/OS events.
+
+![1v4-flamegraph-llc-miss](images4/multi-thread/2flame_cache_cpu_core_LLC-load-misses_u.svg)
+Last Level Cache Misses- The Memory Wall
+Memcached is inherently a memory-bound application. Under heavy concurrent load, the cache hit rate drops, leading to LLC misses. The FlameGraph reveals that assoc_find (the hash table lookup function) is the major victim here. The unpredictable and non-sequential access patterns to the large hash table and memory chunks cause the CPU to stall while fetching data from the main memory (RAM).
+
+![1v4-flamegraph-dtlb-miss](images4/multi-thread/2flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+Data TLB Misses- Translation Overhead
+With a massive number of random memory accesses, the Translation Lookaside Buffer (TLB) struggles to cache all necessary page translations. This graph highlights the overhead of “Page Table Walks” performed by the OS. The high rate of dTLB misses confirms that memory fragmentation and sparse data access patterns in Memcached severely impact address translation efficiency under load.
+![1v4-flamegraph-branch-miss](images4/multi-thread/2flame_tlb_os_cpu_core_branch-misses_u.svg)
+Branch Misses - Pipeline Stalls
+High concurrency introduces unpredictable execution paths, especially during command parsing and state machine transitions in drive_machine. Branch prediction failures cause pipeline flushes, wasting CPU cycles. Optimizing conditional checks in the hot paths could theoretically reduce this overhead, though it is a common characteristic of complex network servers.
+
+![4v1-terminal1](images4/multi-thread/s4c1-terminal1.png)
+Scenario 3 - Multi-Threaded Server (4 Threads) vs Isolated Client
+This scenario evaluates the performance of Memcached when utilizing multiple worker threads, with strict CPU affinity to isolate the server from the load generator.
+Terminal 1: Server Initialization
+We start the Memcached instance with 4 worker threads (-t 4). Using taskset, we pin the process to CPU cores 0, 2, 4, 6. Based on the Intel hybrid topology, these are independent Performance Cores (P-Cores). Pinning to specific physical P-Cores avoids Hyper-Threading contention (by skipping SMT sibling cores like 1, 3, 5, 7) and prevents context-switching overhead, ensuring maximum processing power and cache locality for the server.
+![4v1-terminal4](images4/multi-thread/s4c1-terminal4.png)
+Terminal 4: Client Load Generation
+The memtier_benchmark client is launched with 4 threads to generate high traffic. It is pinned to CPU cores 8, 9, 10, 11. In our topology, these represent the Efficiency Cores (E-Cores). This strict isolation guarantees that the load generator does not interfere with the server’s P-Cores, preventing Resource Contention and ensuring benchmark accuracy.
+![4v1-terminal2](images4/multi-thread/s4c1-terminal2.png)
+Terminal 2: Hardware Performance Counters (perf stat)
+Concurrently with the benchmark, we run perf stat -p $(pidof memcached) to monitor the running server process. The command is split into two executions to capture hardware events without multiplexing issues:
+Cache & Core metrics (cycles, instructions, L1/LLC loads and misses).
+TLB & OS metrics (dTLB misses, branch-misses, page-faults).
+
+Terminal 3: Call Graph Profiling (perf record)
+To generate FlameGraphs for deep function-level analysis, we use perf record -p $(pidof memcached) -g --call-graph fp. This samples the call stack of the application. Like perf stat, it is executed in two separate runs to group relevant events:
+Captures cache-related events and outputs to perf_cache.data.
+Captures TLB/Branch events and outputs to perf_tlb_os.data.
+
+![4v1-flamegraph-cycles](images4/multi-thread/3flame_cache_cpu_core_cycles_u.svg)
+Importance: This graph represents the overall execution time and is the fundamental baseline for understanding where the CPU spends its time.
+Main Hotspot: drive_machine and event_base_loop
+Reason & Analysis: Memcached is an event-driven application. The drive_machine function is the core state machine handling the lifecycle of every client connection. A vast majority of CPU cycles are spent here and in process_command (parsing requests). High utilization here is expected, indicating that optimizing command parsing yields the most significant CPU performance gains.
+![4v1-flamegraph-cycles](images4/multi-thread/3flame_cache_cpu_core_LLC-load-misses_u.svg)
+Importance: For data-intensive applications like Memcached, main memory access is the primary bottleneck (the Memory Wall). This graph highlights where data was not found in the L3 cache.
+Main Hotspot: assoc_find and item_get
+Reason & Analysis: The assoc_find function is responsible for hash table lookups. Because the hash table relies on arrays of pointers and linked lists scattered across memory (pointer chasing), the CPU’s hardware prefetcher cannot easily predict memory access patterns. This random access behavior leads to significant Last Level Cache (LLC) misses.
+![4v1-flamegraph-cycles](images4/multi-thread/3flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+Importance: This graph illustrates the system overhead incurred when translating virtual memory addresses to physical ones.
+Main Hotspot: Memory management and hash lookup functions like assoc_find.
+Reason & Analysis: Memcached uses a custom Slab Allocator. With large datasets, the random memory access patterns (similar to LLC misses) cause the CPU to fail at finding virtual addresses in the TLB cache. This forces the OS to perform expensive Page Table Walks. Enabling Huge Pages is the standard optimization to mitigate this bottleneck.
+
+Scenario 4 Execution Flow
+![4v4-terminal1](images4/multi-thread/s4c4-terminal1.png)
+Terminal 1: Starting the Memcached Server
+First, we stopped any running memcached services (systemctl stop and killall), then executed the following command:
+Using taskset, we pinned the memcached process to CPUs 0,2,4,6. The port is set to 11211, and we used the -t 4 flag to run memcached with 4 threads.
+According to the system topology, cores 0, 2, 4, and 6 are Performance Cores (P-Cores). We placed the 4 server threads exactly on 4 dedicated P-Cores to ensure the server has maximum processing power to handle concurrent requests and to prevent thread migration.
+![4v4-terminal4](images4/multi-thread/s4c4-terminal4.png)
+Terminal 4: Launching the Client (Memtier Benchmark)
+To generate traffic load, we executed:
+This runs a benchmark using 4 threads (-t 4), 50 connections per thread (-c 50), and 100,000 requests per client.
+Cores 8, 9, 10, and 11 are Efficient Cores (E-Cores) in this topology. By pinning the client to E-Cores, we completely isolated the client and server at the hardware level. This prevents resource contention, ensuring that the profiling results for the server are accurate and noise-free.
+![4v4-terminal2](images4/multi-thread/s4c4-terminal2.png)
+Terminal 2: Statistics with perf stat
+Simultaneously with the benchmark, we ran perf stat attached to the memcached PID in this terminal. The command was executed in two separate groups to avoid hardware counter multiplexing. The overall results, including cycle counts, instructions, cache misses, and TLB misses, are visible in the screenshot, providing a high-level hardware summary during the test.
+
+Terminal 3: Recording Events with perf record
+While the load was being generated, we captured detailed profiling data in this terminal to generate FlameGraphs:
+Command Explanation: perf record -p $(pidof memcached) attaches to the memcached process. The -e flag specifies the target events (split into Cache/Core and TLB/OS groups). The critical part is -g --call-graph fp, which records the call stacks using frame pointers, enabling us to build accurate FlameGraphs. The output is saved to .data files (e.g., perf_cache.data).
+
+![4v4-flamegraph-cycles](images4/multi-thread/4flame_cache_cpu_core_cycles_u.svg)
+This graph provides the baseline overview of where the CPU spends its actual execution time. It shows the overall cost of functions.
+Main Hotspot: drive_machine
+This is the core state machine and event loop of Memcached.
+Why it’s dominant: Every network event, client connection, and command parsing goes through this function. Under high load (like 4v4 scenarios), managing the state of thousands of concurrent connections keeps the CPU constantly busy executing instructions within this loop.
+![4v4-flamegraph-llc-miss](images4/multi-thread/4flame_cache_cpu_core_LLC-load-misses_u.svg)
+Memcached is an in-memory key-value store. Its performance is heavily bound by memory access latency (the “Memory Wall”). LLC misses indicate that data wasn’t in the CPU cache and had to be fetched from the much slower main RAM.
+Main Hotspot: assoc_find
+The function responsible for looking up keys in Memcached’s internal Hash Table.
+Why it’s dominant: Hash tables inherently have random memory access patterns. When a key is searched, the CPU tries to fetch the bucket from memory. Since these accesses are scattered, hardware prefetchers fail, leading to massive Last Level Cache (LLC) misses. The CPU stalls while waiting for RAM.
+![4v4-flamegraph-dtlb-miss](images4/multi-thread/4flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+The TLB (Translation Lookaside Buffer) is a small cache in the CPU that speeds up virtual-to-physical memory address translation. High TLB misses show severe Operating System overhead due to Page Table Walks.
+Main Hotspot: assoc_find / Memory Allocators
+What it is: Again, hash table lookups (assoc_find) and memory management operations.
+Because Memcached accesses many different memory pages randomly, the CPU cannot cache all the page translations in the TLB. Every time a TLB miss occurs, the CPU must ask the OS to walk the page tables to find the physical address, adding significant latency on top of the actual memory fetch.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
