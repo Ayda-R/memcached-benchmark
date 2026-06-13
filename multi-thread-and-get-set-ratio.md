@@ -61,8 +61,26 @@ This command launches the client to simulate traffic. It creates $1$ thread (`-t
 - **CPU Topology Context:** We pinned the client to CPU $8$ (`taskset -c 8`). Based on the topology, PU $8$ is located on Core L4, which is an Efficient Core (E-Core). By placing the client on a completely isolated physical core and a different core cluster, we guarantee that the load generator does not compete with Memcached for L1/L2/L3 caches or CPU cycles.
 
 ### Step 3: Hardware Event Counting (Terminal 2)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/cycles/u \
+  -e cpu_core/instructions/u \
+  -e cpu_core/L1-dcache-loads/u \
+  -e cpu_core/L1-dcache-load-misses/u \
+  -e cpu_core/l2_rqsts.references/u \
+  -e cpu_core/l2_rqsts.miss/u \
+  -e cpu_core/branch-misses/u
+```
+![1v1-terminal2-1](images4/multi-thread/s1c1-part1.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/LLC-loads/u \
+  -e cpu_core/LLC-load-misses/u \
+  -e cpu_core/dTLB-loads/u \
+  -e cpu_core/dTLB-load-misses/u
+```
+![1v1-terminal2-2](images4/multi-thread/s1c1-part2.png.png)
 
-![1v1-terminal2](images4/multi-thread/s1c1-terminal2.png)
 
 While the benchmark was running, we executed `perf stat` sequentially to count exact hardware events.
 
@@ -117,8 +135,25 @@ The `memtier_benchmark` tool was executed with $4$ threads (`-t 4`) and pinned t
 - Cores $8$ through $11$ are Efficiency Cores (E-Cores). By placing the client threads on these cores, we completely isolate the load generator from the server. This prevents resource contention and ensures the clients do not pollute the P-Core’s cache or steal CPU cycles from the server.
 
 ### Gathering Overall Stats with `perf stat` (Terminal 2)
-
-![1v4-terminal2](images4/multi-thread/s1c4-terminal2.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/cycles/u \
+  -e cpu_core/instructions/u \
+  -e cpu_core/L1-dcache-loads/u \
+  -e cpu_core/L1-dcache-load-misses/u \
+  -e cpu_core/l2_rqsts.references/u \
+  -e cpu_core/l2_rqsts.miss/u \
+  -e cpu_core/branch-misses/u
+```
+![1v4-terminal2-1](images4/multi-thread/s1c4-part1.png.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/LLC-loads/u \
+  -e cpu_core/LLC-load-misses/u \
+  -e cpu_core/dTLB-loads/u \
+  -e cpu_core/dTLB-load-misses/u
+```
+![1v4-terminal2-2](images4/multi-thread/s1c4-part2.png.png)
 
 Concurrently with the benchmark, `perf stat` was attached to the Memcached Process ID. It was run in two separate groups to collect overall hardware event statistics (such as CPU cycles, cache misses, and TLB misses) during the benchmark run.
 
@@ -164,7 +199,25 @@ taskset -c 8 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 1 -c 
 The `memtier_benchmark` client is launched with $4$ threads to generate high traffic. It is pinned to CPU cores $8$, $9$, $10$, $11$. In our topology, these represent the Efficiency Cores (E-Cores). This strict isolation guarantees that the load generator does not interfere with the server’s P-Cores, preventing Resource Contention and ensuring benchmark accuracy.
 
 ### Hardware Performance Counters `perf stat` (Terminal 2)
-![4v1-terminal2](images4/multi-thread/s4c1-terminal2.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/cycles/u \
+  -e cpu_core/instructions/u \
+  -e cpu_core/L1-dcache-loads/u \
+  -e cpu_core/L1-dcache-load-misses/u \
+  -e cpu_core/l2_rqsts.references/u \
+  -e cpu_core/l2_rqsts.miss/u \
+  -e cpu_core/branch-misses/u
+```
+![4v1-terminal2-1](images4/multi-thread/s4c1-part1.png.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/LLC-loads/u \
+  -e cpu_core/LLC-load-misses/u \
+  -e cpu_core/dTLB-loads/u \
+  -e cpu_core/dTLB-load-misses/u
+```
+![4v1-terminal2-2](images4/multi-thread/s4c1-part2.png.png)
 
 Concurrently with the benchmark, we run `perf stat -p $(pidof memcached)` to monitor the running server process. The command is split into two executions to capture hardware events without multiplexing issues:
 1. Cache & Core metrics (cycles, instructions, L1/LLC loads and misses).
@@ -218,7 +271,25 @@ To generate traffic load, we executed the `memtier_benchmark`. This runs a bench
 Cores $8$, $9$, $10$, and $11$ are Efficient Cores (E-Cores) in this topology. By pinning the client to E-Cores, we completely isolated the client and server at the hardware level. This prevents resource contention, ensuring that the profiling results for the server are accurate and noise-free.
 
 ### Statistics with `perf stat` (Terminal 2)
-![4v4-terminal2](images4/multi-thread/s4c4-terminal2.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/cycles/u \
+  -e cpu_core/instructions/u \
+  -e cpu_core/L1-dcache-loads/u \
+  -e cpu_core/L1-dcache-load-misses/u \
+  -e cpu_core/l2_rqsts.references/u \
+  -e cpu_core/l2_rqsts.miss/u \
+  -e cpu_core/branch-misses/u
+```
+![4v4-terminal2-1](images4/multi-thread/s4c4-part1.png.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/LLC-loads/u \
+  -e cpu_core/LLC-load-misses/u \
+  -e cpu_core/dTLB-loads/u \
+  -e cpu_core/dTLB-load-misses/u
+```
+![4v4-terminal2-2](images4/multi-thread/s4c4-part2.png.png)
 
 Simultaneously with the benchmark, we ran `perf stat` attached to the memcached PID in this terminal. The command was executed in two separate groups to avoid hardware counter multiplexing. The overall results, including cycle counts, instructions, cache misses, and TLB misses, are visible in the screenshot, providing a high-level hardware summary during the test.
 
