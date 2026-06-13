@@ -76,7 +76,7 @@ Simultaneously (in another test run), we captured profiling data using `perf rec
 
 ### 1. CPU Cycles Analysis
 
-![1v1-flamegraph-cycles](images4/multi-thread/1flame_cache_cpu_core_cycles_u.svg)
+[![1v1-flamegraph-cycles](images4/multi-thread/1flame_cache_cpu_core_cycles_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/1flame_cache_cpu_core_cycles_u.svg)
 - **Main Hotspot:** The `drive_machine` function, leading into `process_command` and `assoc_find`.
 - **Reason & Functionality:** Memcached uses an event-driven architecture. `drive_machine` is the core event loop. The CPU spends most of its time in `process_command` (parsing client requests like GET/SET) and `assoc_find` (looking up the key in the hash table). This is a sign of a healthy architecture where CPU cycles are spent on the core business logic rather than overhead.
 
@@ -88,7 +88,7 @@ Simultaneously (in another test run), we captured profiling data using `perf rec
 
 ### 3. Data TLB Misses Analysis
 
-![1v1-flamegraph-dtlb-miss](images4/multi-thread/1flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+[![1v1-flamegraph-dtlb-miss](images4/multi-thread/1flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/1flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
 - **Main Hotspot:** Item retrieval (`do_item_get`) and lookup functions (`assoc_find`).
 - **Reason & Functionality:** The TLB (Translation Lookaside Buffer) is a small cache for virtual-to-physical address translations. Because Memcached accesses scattered memory locations (different memory pages) across a huge memory pool, the TLB capacity is frequently exceeded. TLB misses force the CPU to perform costly Page Table Walks, adding OS-level overhead to memory lookups.
 
@@ -129,17 +129,17 @@ To generate FlameGraphs later, `perf record` was used to capture detailed call g
 ### FlameGraph Analysis (1v4 Scenario)
 
 #### Last Level Cache Misses - The Memory Wall
-![1v4-flamegraph-llc-miss](images4/multi-thread/2flame_cache_cpu_core_LLC-load-misses_u.svg)
+[![1v4-flamegraph-llc-miss](images4/multi-thread/2flame_cache_cpu_core_LLC-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/2flame_cache_cpu_core_LLC-load-misses_u.svg)
 
 Memcached is inherently a memory-bound application. Under heavy concurrent load, the cache hit rate drops, leading to LLC misses. The FlameGraph reveals that `assoc_find` (the hash table lookup function) is the major victim here. The unpredictable and non-sequential access patterns to the large hash table and memory chunks cause the CPU to stall while fetching data from the main memory (RAM).
 
 #### Data TLB Misses - Translation Overhead
-![1v4-flamegraph-dtlb-miss](images4/multi-thread/2flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+[![1v4-flamegraph-dtlb-miss](images4/multi-thread/2flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/2flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
 
 With a massive number of random memory accesses, the Translation Lookaside Buffer (TLB) struggles to cache all necessary page translations. This graph highlights the overhead of “Page Table Walks” performed by the OS. The high rate of dTLB misses confirms that memory fragmentation and sparse data access patterns in Memcached severely impact address translation efficiency under load.
 
 #### Branch Misses - Pipeline Stalls
-![1v4-flamegraph-branch-miss](images4/multi-thread/2flame_tlb_os_cpu_core_branch-misses_u.svg)
+[![1v4-flamegraph-branch-miss](images4/multi-thread/2flame_tlb_os_cpu_core_branch-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/2flame_tlb_os_cpu_core_branch-misses_u.svg)
 
 High concurrency introduces unpredictable execution paths, especially during command parsing and state machine transitions in `drive_machine`. Branch prediction failures cause pipeline flushes, wasting CPU cycles. Optimizing conditional checks in the hot paths could theoretically reduce this overhead, though it is a common characteristic of complex network servers.
 
@@ -179,19 +179,19 @@ To generate FlameGraphs for deep function-level analysis, we use `perf record -p
 ### FlameGraph Analysis (4v1 Scenario)
 
 #### CPU Cycles
-![4v1-flamegraph-cycles](images4/multi-thread/3flame_cache_cpu_core_cycles_u.svg)
+[![4v1-flamegraph-cycles](images4/multi-thread/3flame_cache_cpu_core_cycles_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/3flame_cache_cpu_core_cycles_u.svg)
 - **Importance:** This graph represents the overall execution time and is the fundamental baseline for understanding where the CPU spends its time.
 - **Main Hotspot:** `drive_machine` and `event_base_loop`.
 - **Reason & Analysis:** Memcached is an event-driven application. The `drive_machine` function is the core state machine handling the lifecycle of every client connection. A vast majority of CPU cycles are spent here and in `process_command` (parsing requests). High utilization here is expected, indicating that optimizing command parsing yields the most significant CPU performance gains.
 
 #### LLC Misses
-![4v1-flamegraph-llc-miss](images4/multi-thread/3flame_cache_cpu_core_LLC-load-misses_u.svg)
+[![4v1-flamegraph-llc-miss](images4/multi-thread/3flame_cache_cpu_core_LLC-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/3flame_cache_cpu_core_LLC-load-misses_u.svg)
 - **Importance:** For data-intensive applications like Memcached, main memory access is the primary bottleneck (the Memory Wall). This graph highlights where data was not found in the L3 cache.
 - **Main Hotspot:** `assoc_find` and `item_get`.
 - **Reason & Analysis:** The `assoc_find` function is responsible for hash table lookups. Because the hash table relies on arrays of pointers and linked lists scattered across memory (pointer chasing), the CPU’s hardware prefetcher cannot easily predict memory access patterns. This random access behavior leads to significant Last Level Cache (LLC) misses.
 
 #### dTLB Misses
-![4v1-flamegraph-dtlb-miss](images4/multi-thread/3flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+[![4v1-flamegraph-dtlb-miss](images4/multi-thread/3flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)](https://raw.githubusercontent.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/3flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
 - **Importance:** This graph illustrates the system overhead incurred when translating virtual memory addresses to physical ones.
 - **Main Hotspot:** Memory management and hash lookup functions like `assoc_find`.
 - **Reason & Analysis:** Memcached uses a custom Slab Allocator. With large datasets, the random memory access patterns (similar to LLC misses) cause the CPU to fail at finding virtual addresses in the TLB cache. This forces the OS to perform expensive Page Table Walks. Enabling Huge Pages is the standard optimization to mitigate this bottleneck.
@@ -230,19 +230,19 @@ Command Explanation: `perf record -p $(pidof memcached)` attaches to the memcach
 ### FlameGraph Analysis (4v4 Scenario)
 
 #### CPU Cycles
-![4v4-flamegraph-cycles](images4/multi-thread/4flame_cache_cpu_core_cycles_u.svg)
+[![4v4-flamegraph-cycles](images4/multi-thread/4flame_cache_cpu_core_cycles_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/4flame_cache_cpu_core_cycles_u.svg)
 This graph provides the baseline overview of where the CPU spends its actual execution time. It shows the overall cost of functions.
 - **Main Hotspot:** `drive_machine`
 - **Why it’s dominant:** This is the core state machine and event loop of Memcached. Every network event, client connection, and command parsing goes through this function. Under high load (like 4v4 scenarios), managing the state of thousands of concurrent connections keeps the CPU constantly busy executing instructions within this loop.
 
 #### LLC Misses
-![4v4-flamegraph-llc-miss](images4/multi-thread/4flame_cache_cpu_core_LLC-load-misses_u.svg)
+[![4v4-flamegraph-llc-miss](images4/multi-thread/4flame_cache_cpu_core_LLC-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/4flame_cache_cpu_core_LLC-load-misses_u.svg)
 Memcached is an in-memory key-value store. Its performance is heavily bound by memory access latency (the “Memory Wall”). LLC misses indicate that data wasn’t in the CPU cache and had to be fetched from the much slower main RAM.
 - **Main Hotspot:** `assoc_find`
 - **Why it’s dominant:** The function responsible for looking up keys in Memcached’s internal Hash Table. Hash tables inherently have random memory access patterns. When a key is searched, the CPU tries to fetch the bucket from memory. Since these accesses are scattered, hardware prefetchers fail, leading to massive Last Level Cache (LLC) misses. The CPU stalls while waiting for RAM.
 
 #### dTLB Misses
-![4v4-flamegraph-dtlb-miss](images4/multi-thread/4flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
+[![4v4-flamegraph-dtlb-miss](images4/multi-thread/4flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)](https://raw.githubusercontent.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/4flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
 The TLB (Translation Lookaside Buffer) is a small cache in the CPU that speeds up virtual-to-physical memory address translation. High TLB misses show severe Operating System overhead due to Page Table Walks.
 - **Main Hotspot:** `assoc_find` / Memory Allocators
 - **Why it’s dominant:** Again, hash table lookups (`assoc_find`) and memory management operations. Because Memcached accesses many different memory pages randomly, the CPU cannot cache all the page translations in the TLB. Every time a TLB miss occurs, the CPU must ask the OS to walk the page tables to find the physical address, adding significant latency on top of the actual memory fetch.
