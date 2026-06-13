@@ -44,14 +44,14 @@ The primary goal of these $4$ scenarios is to evaluate the scalability and archi
 
 ### Step 1: Initializing the Memcached Server (Terminal 1)
 
-![1v1-terminal1](images4/multi-thread/s1c1-terminal1.png)
+taskset -c 2 memcached -o 11211 -t 1 -u root
 
 We start the Memcached server as the root user on port $11211$, strictly limiting it to a single thread (`-t 1`).
 - **CPU Topology Context:** We used `taskset -c 2` to pin the process to Processing Unit (PU) $2$. According to our hardware topology (`lstopo`), PU $2$ is located on Core L$1$, which is a Performance Core (P-Core). Pinning the process ensures cache locality (L1/L2 caches) and prevents the OS scheduler from migrating the process, which would pollute the CPU cache.
 
 ### Step 2: Generating Load with Memtier Benchmark (Terminal 4)
 
-![1v1-terminal4](images4/multi-thread/s1c1-terminal4.png)
+taskset -c 8 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 1 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 
 This command launches the client to simulate traffic. It creates $1$ thread (`-t 1`) with $50$ connections, sending $100,000$ requests per connection with an equal Read/Write ratio (`--ratio=1:1`).
 - **CPU Topology Context:** We pinned the client to CPU $8$ (`taskset -c 8`). Based on the topology, PU $8$ is located on Core L4, which is an Efficient Core (E-Core). By placing the client on a completely isolated physical core and a different core cluster, we guarantee that the load generator does not compete with Memcached for L1/L2/L3 caches or CPU cycles.
@@ -96,14 +96,14 @@ In this scenario, the goal is to evaluate the performance of a single server cor
 
 ### Server Setup (Terminal 1)
 
-![1v4-terminal1](images4/multi-thread/s1c4-terminal1.png)
+taskset -c 2 memcached -o 11211 -t 1 -u root
 
 Existing services were stopped first. Then, Memcached was launched using `taskset` pinned strictly to logical processor $2$ with a single thread (`-t 1`).
 - Core number $2$ is a Performance Core (P-Core). We pin the server here to ensure it gets maximum processing power and full access to the large L3 cache.
 
 ### Client Setup (Terminal 4)
 
-![1v4-terminal4](images4/multi-thread/s1c4-terminal4.png)
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 
 The `memtier_benchmark` tool was executed with $4$ threads (`-t 4`) and pinned to logical processors $8$, $9$, $10$, and $11$.
 - Cores $8$ through $11$ are Efficiency Cores (E-Cores). By placing the client threads on these cores, we completely isolate the load generator from the server. This prevents resource contention and ensures the clients do not pollute the P-Core’s cache or steal CPU cycles from the server.
@@ -142,12 +142,12 @@ High concurrency introduces unpredictable execution paths, especially during com
 This scenario evaluates the performance of Memcached when utilizing multiple worker threads, with strict CPU affinity to isolate the server from the load generator.
 
 ### Server Initialization (Terminal 1)
-![4v1-terminal1](images4/multi-thread/s4c1-terminal1.png)
+taskset -c 0,2,4,6 memcached -o 11211 -t 4 -u root
 
 We start the Memcached instance with $4$ worker threads (`-t 4`). Using `taskset`, we pin the process to CPU cores $0$, $2$, $4$, $6$. Based on the Intel hybrid topology, these are independent Performance Cores (P-Cores). Pinning to specific physical P-Cores avoids Hyper-Threading contention (by skipping SMT sibling cores like $1$, $3$, $5$, $7$) and prevents context-switching overhead, ensuring maximum processing power and cache locality for the server.
 
 ### Client Load Generation (Terminal 4)
-![4v1-terminal4](images4/multi-thread/s4c1-terminal4.png)
+taskset -c 8 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 1 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 
 The `memtier_benchmark` client is launched with $4$ threads to generate high traffic. It is pinned to CPU cores $8$, $9$, $10$, $11$. In our topology, these represent the Efficiency Cores (E-Cores). This strict isolation guarantees that the load generator does not interfere with the server’s P-Cores, preventing Resource Contention and ensuring benchmark accuracy.
 
@@ -189,14 +189,14 @@ To generate FlameGraphs for deep function-level analysis, we use `perf record -p
 ## Scenario 4: Full Scalability Test (4v4)
 
 ### Starting the Memcached Server (Terminal 1)
-![4v4-terminal1](images4/multi-thread/s4c4-terminal1.png)
+taskset -c 0,2,4,6 memcached -o 11211 -t 4 -u root
 
 First, we stopped any running memcached services (`systemctl stop` and `killall`), then executed the following command:
 Using `taskset`, we pinned the memcached process to CPUs $0$, $2$, $4$, $6$. The port is set to $11211$, and we used the `-t 4` flag to run memcached with $4$ threads.
 According to the system topology, cores $0$, $2$, $4$, and $6$ are Performance Cores (P-Cores). We placed the $4$ server threads exactly on $4$ dedicated P-Cores to ensure the server has maximum processing power to handle concurrent requests and to prevent thread migration.
 
 ### Launching the Client (Terminal 4)
-![4v4-terminal4](images4/multi-thread/s4c4-terminal4.png)
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 
 To generate traffic load, we executed the `memtier_benchmark`. This runs a benchmark using $4$ threads (`-t 4`), $50$ connections per thread (`-c 50`), and $100,000$ requests per client.
 Cores $8$, $9$, $10$, and $11$ are Efficient Cores (E-Cores) in this topology. By pinning the client to E-Cores, we completely isolated the client and server at the hardware level. This prevents resource contention, ensuring that the profiling results for the server are accurate and noise-free.
@@ -280,7 +280,7 @@ We test three specific ratios:
 This setup remains constant across all three ratio tests.
 To ensure isolated and accurate profiling, we first stop any background instances of Memcached and then launch our custom-compiled version pinned to a specific CPU core.
 Command executed in Terminal 1:
-![equal-terminal1](images4/get-set-ratio/equal-terminal1.png)
+taskset -c 2 memcached -o 11211 -t 1 -u root
 
 ---
 
@@ -289,7 +289,7 @@ After starting the Memcached server, we utilize two additional terminals to gene
 
 **Client Setup & Load Generation:**
 To simulate a balanced workload where read and write operations are equal, we execute the `memtier_benchmark` tool in Terminal 3.
-![equal-terminal3](images4/get-set-ratio/equal-terminal4.png)
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 
 **Concurrent Performance Profiling:**
 Exactly while the benchmark is running, we execute `perf stat` commands in Terminal 2 to capture the hardware performance counters of the Memcached process.
@@ -302,7 +302,7 @@ After establishing the Memcached server (pinned to P-Core $2$), we use the remai
 
 **Client Setup & Load Generation:**
 To simulate a workload predominantly consisting of read operations ($90\%$ reads, $10\%$ writes), we execute the `memtier_benchmark` tool.
-![read-heavy-terminal3](images4/get-set-ratio/read-heavy-terminal4.png)
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:9 --key-pattern=R:R
 
 **Concurrent Performance Profiling:**
 While the read-heavy benchmark is actively running, we capture both high-level statistical counters and deep-level execution graphs. We use `perf stat` to capture aggregated hardware performance metrics during the workload execution.
@@ -315,7 +315,7 @@ After establishing the Memcached server (pinned to P-Core $2$), we use the remai
 
 **Client Setup & Load Generation:**
 To simulate a workload predominantly consisting of write operations ($90\%$ writes, $10\%$ reads), we execute the `memtier_benchmark` tool.
-![write-heavy-terminal4](images4/get-set-ratio/write-heavy-terminal4.png)
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=9:1 --key-pattern=R:R
 
 **Concurrent Performance Profiling:**
 While the write-heavy benchmark is actively running, we capture both high-level statistical counters and deep-level execution graphs. We use `perf stat` to capture aggregated hardware performance metrics during the workload execution.
