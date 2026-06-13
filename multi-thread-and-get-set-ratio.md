@@ -45,7 +45,7 @@ The primary goal of these $4$ scenarios is to evaluate the scalability and archi
 ### Step 1: Initializing the Memcached Server (Terminal 1)
 
 ```bash
-taskset -c 2 memcached -o 11211 -t 1 -u root
+taskset -c 2 memcached -p 11211 -t 1 -u root
 ```
 
 We start the Memcached server as the root user on port $11211$, strictly limiting it to a single thread (`-t 1`).
@@ -54,7 +54,7 @@ We start the Memcached server as the root user on port $11211$, strictly limitin
 ### Step 2: Generating Load with Memtier Benchmark (Terminal 4)
 
 ```bash
-taskset -c 8 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 1 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
+taskset -c 8 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 1 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 ```
 
 This command launches the client to simulate traffic. It creates $1$ thread (`-t 1`) with $50$ connections, sending $100,000$ requests per connection with an equal Read/Write ratio (`--ratio=1:1`).
@@ -101,7 +101,7 @@ In this scenario, the goal is to evaluate the performance of a single server cor
 ### Server Setup (Terminal 1)
 
 ```bash
-taskset -c 2 memcached -o 11211 -t 1 -u root
+taskset -c 2 memcached -p 11211 -t 1 -u root
 ```
 
 Existing services were stopped first. Then, Memcached was launched using `taskset` pinned strictly to logical processor $2$ with a single thread (`-t 1`).
@@ -110,7 +110,7 @@ Existing services were stopped first. Then, Memcached was launched using `taskse
 ### Client Setup (Terminal 4)
 
 ```bash
-taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 ```
 
 The `memtier_benchmark` tool was executed with $4$ threads (`-t 4`) and pinned to logical processors $8$, $9$, $10$, and $11$.
@@ -151,14 +151,14 @@ This scenario evaluates the performance of Memcached when utilizing multiple wor
 
 ### Server Initialization (Terminal 1)
 ```bash
-taskset -c 0,2,4,6 memcached -o 11211 -t 4 -u root
+taskset -c 0,2,4,6 memcached -p 11211 -t 4 -u root
 ```
 
 We start the Memcached instance with $4$ worker threads (`-t 4`). Using `taskset`, we pin the process to CPU cores $0$, $2$, $4$, $6$. Based on the Intel hybrid topology, these are independent Performance Cores (P-Cores). Pinning to specific physical P-Cores avoids Hyper-Threading contention (by skipping SMT sibling cores like $1$, $3$, $5$, $7$) and prevents context-switching overhead, ensuring maximum processing power and cache locality for the server.
 
 ### Client Load Generation (Terminal 4)
 ```bash
-taskset -c 8 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 1 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
+taskset -c 8 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 1 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 ```
 
 The `memtier_benchmark` client is launched with $4$ threads to generate high traffic. It is pinned to CPU cores $8$, $9$, $10$, $11$. In our topology, these represent the Efficiency Cores (E-Cores). This strict isolation guarantees that the load generator does not interfere with the server’s P-Cores, preventing Resource Contention and ensuring benchmark accuracy.
@@ -202,7 +202,7 @@ To generate FlameGraphs for deep function-level analysis, we use `perf record -p
 
 ### Starting the Memcached Server (Terminal 1)
 ```bash
-taskset -c 0,2,4,6 memcached -o 11211 -t 4 -u root
+taskset -c 0,2,4,6 memcached -p 11211 -t 4 -u root
 ```
 
 First, we stopped any running memcached services (`systemctl stop` and `killall`), then executed the following command:
@@ -211,7 +211,7 @@ According to the system topology, cores $0$, $2$, $4$, and $6$ are Performance C
 
 ### Launching the Client (Terminal 4)
 ```bash
-taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 ```
 
 To generate traffic load, we executed the `memtier_benchmark`. This runs a benchmark using $4$ threads (`-t 4`), $50$ connections per thread (`-c 50`), and $100,000$ requests per client.
@@ -297,7 +297,7 @@ This setup remains constant across all three ratio tests.
 To ensure isolated and accurate profiling, we first stop any background instances of Memcached and then launch our custom-compiled version pinned to a specific CPU core.
 Command executed in Terminal 1:
 ```bash
-taskset -c 2 memcached -o 11211 -t 1 -u root
+taskset -c 2 memcached -P 11211 -t 1 -u root
 ```
 
 ---
@@ -308,7 +308,7 @@ After starting the Memcached server, we utilize two additional terminals to gene
 **Client Setup & Load Generation:**
 To simulate a balanced workload where read and write operations are equal, we execute the `memtier_benchmark` tool in Terminal 3.
 ```bash
-taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 ```
 
 **Concurrent Performance Profiling:**
@@ -323,7 +323,7 @@ After establishing the Memcached server (pinned to P-Core $2$), we use the remai
 **Client Setup & Load Generation:**
 To simulate a workload predominantly consisting of read operations ($90\%$ reads, $10\%$ writes), we execute the `memtier_benchmark` tool.
 ```bash
-taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=1:9 --key-pattern=R:R
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 4 -c 50 -n 100000 --ratio=1:9 --key-pattern=R:R
 ```
 
 **Concurrent Performance Profiling:**
@@ -338,7 +338,7 @@ After establishing the Memcached server (pinned to P-Core $2$), we use the remai
 **Client Setup & Load Generation:**
 To simulate a workload predominantly consisting of write operations ($90\%$ writes, $10\%$ reads), we execute the `memtier_benchmark` tool.
 ```bash
-taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p memcache_binary -t 4 -c 50 -n 100000 --ratio=9:1 --key-pattern=R:R
+taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 4 -c 50 -n 100000 --ratio=9:1 --key-pattern=R:R
 ```
 
 **Concurrent Performance Profiling:**
