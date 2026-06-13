@@ -82,7 +82,7 @@ Simultaneously (in another test run), we captured profiling data using `perf rec
 
 ### 2. Last Level Cache (LLC) Misses Analysis
 
-![1v1-flamegraph-llc-miss]([images4/multi-thread/1flame_cache_cpu_core_LLC-load-misses_u.svg](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/1flame_cache_cpu_core_LLC-load-misses_u.svg))
+[![1v1-flamegraph-llc-miss](images4/multi-thread/1flame_cache_cpu_core_LLC-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/1flame_cache_cpu_core_LLC-load-misses_u.svg)
 - **Main Hotspot:** The `assoc_find` function.
 - **Reason & Functionality:** `assoc_find` traverses the large Memcached hash table. Due to the random access nature of key lookups, the required memory addresses are rarely found in the CPU’s Last-Level Cache (L3). This results in Cache Misses, forcing the CPU to fetch data directly from the slower Main Memory (RAM), which is the primary performance bottleneck for in-memory stores.
 
