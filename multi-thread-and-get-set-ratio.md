@@ -79,7 +79,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/dTLB-loads/u \
   -e cpu_core/dTLB-load-misses/u
 ```
-![1v1-terminal2-2](images4/multi-thread/s1c1-part2.png.png)
+![1v1-terminal2-2](images4/multi-thread/s1c1-part2.png)
 
 
 While the benchmark was running, we executed `perf stat` sequentially to count exact hardware events.
@@ -145,7 +145,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/l2_rqsts.miss/u \
   -e cpu_core/branch-misses/u
 ```
-![1v4-terminal2-1](images4/multi-thread/s1c4-part1.png.png)
+![1v4-terminal2-1](images4/multi-thread/s1c4-part1.png)
 ```bash
 sudo perf stat -p $(pidof memcached) \
   -e cpu_core/LLC-loads/u \
@@ -153,7 +153,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/dTLB-loads/u \
   -e cpu_core/dTLB-load-misses/u
 ```
-![1v4-terminal2-2](images4/multi-thread/s1c4-part2.png.png)
+![1v4-terminal2-2](images4/multi-thread/s1c4-part2.png)
 
 Concurrently with the benchmark, `perf stat` was attached to the Memcached Process ID. It was run in two separate groups to collect overall hardware event statistics (such as CPU cycles, cache misses, and TLB misses) during the benchmark run.
 
@@ -209,7 +209,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/l2_rqsts.miss/u \
   -e cpu_core/branch-misses/u
 ```
-![4v1-terminal2-1](images4/multi-thread/s4c1-part1.png.png)
+![4v1-terminal2-1](images4/multi-thread/s4c1-part1.png)
 ```bash
 sudo perf stat -p $(pidof memcached) \
   -e cpu_core/LLC-loads/u \
@@ -217,7 +217,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/dTLB-loads/u \
   -e cpu_core/dTLB-load-misses/u
 ```
-![4v1-terminal2-2](images4/multi-thread/s4c1-part2.png.png)
+![4v1-terminal2-2](images4/multi-thread/s4c1-part2.png)
 
 Concurrently with the benchmark, we run `perf stat -p $(pidof memcached)` to monitor the running server process. The command is split into two executions to capture hardware events without multiplexing issues:
 1. Cache & Core metrics (cycles, instructions, L1/LLC loads and misses).
@@ -281,7 +281,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/l2_rqsts.miss/u \
   -e cpu_core/branch-misses/u
 ```
-![4v4-terminal2-1](images4/multi-thread/s4c4-part1.png.png)
+![4v4-terminal2-1](images4/multi-thread/s4c4-part1.png)
 ```bash
 sudo perf stat -p $(pidof memcached) \
   -e cpu_core/LLC-loads/u \
@@ -289,7 +289,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/dTLB-loads/u \
   -e cpu_core/dTLB-load-misses/u
 ```
-![4v4-terminal2-2](images4/multi-thread/s4c4-part2.png.png)
+![4v4-terminal2-2](images4/multi-thread/s4c4-part2.png)
 
 Simultaneously with the benchmark, we ran `perf stat` attached to the memcached PID in this terminal. The command was executed in two separate groups to avoid hardware counter multiplexing. The overall results, including cycle counts, instructions, cache misses, and TLB misses, are visible in the screenshot, providing a high-level hardware summary during the test.
 
