@@ -366,35 +366,86 @@ The TLB (Translation Lookaside Buffer) is a small cache in the CPU that speeds u
 
 ## Performance Analysis and Scenario Comparison
 
-| Event | Scenario A (1server&1client) | Scenario B (1server&4clients) | Scenario C (4servers&1client) | Scenario D (4servers&4clients) |
-|-------|----------------|----------------|----------------|----------------|
-| `cycles` | $14,531,968,664$ | $57,066,495,758$ | $17,642,738,058$ | $74,554,408,070$ |
-| `instructions` | $25,695,473,247$ | $92,475,058,226$ | $25,628,988,937$ | $98,343,132,618$ |
-| `L1-dcache-loads` | $9,132,122,261$ | $33,434,476,200$ | $9,241,623,284$ | $35,276,551,172$ |
-| `L1-icache-load-misses`* | $2,256,663,659$ | $7,143,770,357$ | $2,436,476,681$ | $8,715,470,797$ |
-| `LLC-loads` | $1,784,944$ | $81,749,587$ | $24,115,445$ | $181,090,372$ |
-| `LLC-load-misses` | $365,672$ | $14,272,948$ | $927,325$ | $11,902,507$ |
-| `dTLB-loads` | $9,087,251,635$ | $33,259,081,492$ | $9,090,831,675$ | $35,285,879,239$ |
-| `dTLB-load-misses` | $925,127$ | $8,124,247$ | $3,549,738$ | $12,831,720$ |
-| `branch-misses` | $6,988,214$ | $29,258,736$ | $15,280,709$ | $45,012,475$ |
-| **IPC** (ins/cycle) | $1.77$ | $1.62$ | $1.45$ | $1.32$ |
-| **LLC miss rate** | $20.49\%$ | $17.46\%$ | $3.85\%$ | $6.57\%$ |
-| **dTLB miss rate** | $0.0102\%$ | $0.0244\%$ | $0.0391\%$ | $0.0364\%$ |
+| Event (Performance Counter) | `1 server & 1 client` | `1 server & 4 clients` | `4 servers & 1 client` | `4 servers & 4 clients` |
+| :--- | :--- | :--- | :--- | :--- |
+| **cpu_core/cycles/u** | 8,629,377,716 | 34,079,698,735 | 10,536,795,421 | 42,093,412,244 |
+| **cpu_core/instructions/u** | 15,627,840,494 | 54,743,510,244 | 15,658,560,844 | 60,505,528,305 |
+| **cpu_core/L1-dcache-loads/u** | 4,115,067,684 | 14,257,910,322 | 4,118,884,214 | 15,860,595,838 |
+| **cpu_core/L1-dcache-load-misses/u** | 210,110,486 (5.11%) | 535,256,181 (3.75%) | 242,012,720 (5.88%) | 892,941,790 (5.63%) |
+| **cpu_core/l2_rqsts.references/u** | 2,252,326,459 | 6,177,608,221 | 2,454,436,611 | 8,580,957,862 |
+| **cpu_core/l2_rqsts.miss/u** | 7,562,459 | 463,236,597 | 102,080,134 | 571,249,399 |
+| **cpu_core/branch-misses/u** | 6,192,597 | 20,058,710 | 7,365,974 | 29,592,115 |
+| **cpu_core/LLC-loads/u** | 1,746,420 | 86,546,898 | 21,920,259 | 135,906,919 |
+| **cpu_core/LLC-load-misses/u** | 310,561 (17.78%) | 10,418,000 (12.04%) | 939,749 (4.29%) | 4,543,625 (3.34%) |
+| **cpu_core/dTLB-loads/u** | 4,168,360,951 | 14,253,144,337 | 4,151,656,281 | 15,911,141,669 |
+| **cpu_core/dTLB-load-misses/u** | 82,807 (0.00%) | 768,613 (0.01%) | 937,034 (0.02%) | 2,569,623 (0.02%) |
 
-In this section, we analyze the system’s behavior across $4$ different scenarios (various combinations of server and client threads). The key factor in this analysis is that client threads determine the load and incoming traffic to the server.
 
-- **Impact of Client Traffic on Processing Volume (instructions and cycles):**
-  In scenarios s1c1 and s4c1 (where there is only $1$ client thread), the number of executed instructions in both cases is around $25$ billion. This indicates that simply increasing server threads has no impact since the workload is light, causing the server to experience underutilization. By increasing client threads to $4$ (s1c4 and s4c4), the generated traffic surges drastically, causing CPU instructions to jump to over $92$ - $98$ billion. In s4c4, we observe the highest cycle consumption ($74$ billion), reflecting the parallel activity of all $4$ server threads working at maximum capacity to serve requests.
 
-- **Load Distribution Optimization and Cache Miss Reduction (LLC-load-misses):**
-  One of the most critical findings is the behavior of the Last Level Cache (LLC) miss rate. When the server has only $1$ thread (s1c1 at $20.49\%$ and s1c4 at $17.46\%$), the miss rate is significantly high. This means a single thread is accessing a massive volume of memory, causing Cache Thrashing. When server threads are increased to $4$ threads (s4c1 and s4c4), the miss rate drops dramatically to single digits ($3.85\%$ and $6.57\%$). The reason is the distribution of the workload and data structures (like hash tables) across $4$ physical cores (P-Cores). Each core handles a smaller subset of data, leading to better data retention in the cache and a significantly higher Cache Hit Ratio.
+1. Execution Efficiency & IPC (Cycles vs. Instructions)
+By calculating the Instructions Per Cycle (IPC = Instructions / Cycles), we can observe how the CPU execution efficiency degrades under contention:
 
-- **Level 1 Cache (L1-dcache-loads) and dTLB Behavior:**
-  L1 cache loads are directly correlated with instruction counts and increase by approximately $3$ to $4$ times in high-client scenarios. Data TLB misses (dTLB-load-misses) remain below $0.05\%$ across all scenarios. This demonstrates that the OS handles memory page management extremely well, although in s4c4, due to memory access scattering under high traffic, the raw count of these misses peaks ($12$ million).
+1v1 (Baseline): IPC 
+≈
+1.81
+≈1.81
+1v4 (Stress): IPC 
+≈
+1.60
+≈1.60
+4v1 (Sync Overhead): IPC 
+≈
+1.48
+≈1.48
+4v4 (Full Scale): IPC 
+≈
+1.43
+≈1.43
+Root Cause: The drop in IPC, especially in scenarios C (4v1) and D (4v4), is a direct result of Lock Contention. When multiple Memcached threads try to access the shared hash table, synchronization mechanisms (like mutexes or spinlocks) force cores to waste cycles waiting, thereby lowering the overall instruction throughput per cycle.
+2. L1 Data Cache Performance
+The L1-dcache miss rate remains remarkably stable and low across all scenarios, ranging from 
+3.75
+%
+3.75%
+ to 
+5.88
+%
+5.88%
+.
 
-- **Branch Prediction Challenges (branch-misses):**
-  In the maximum traffic scenario (s4c4), branch misses reach their peak ($45$ million). Processing multiple network connections concurrently and frequent changes in Memcached’s state machine make the application’s behavior highly unpredictable, leading to more failures in the CPU’s Branch Predictor mechanism.
+Root Cause: Memcached’s internal data structures (primarily its hash table and linked lists for LRU) are highly optimized for spatial locality. Interestingly, the 1v4 scenario has the lowest L1 miss rate (
+3.75
+%
+3.75%
+). This happens because a single server thread is being hammered with requests, causing the hottest data to remain pinned and constantly reused in that specific core’s L1 cache.
 
+3. L2 Cache Performance (The Intermediary Buffer)
+The L2 cache acts as a critical bridge between the highly localized L1 and the shared LLC. It handles the memory requests that slip through the L1 cache.
+
+Root Cause: While L1 absorbs the immediate “hot” data (like active hash table buckets), the L2 cache efficiently captures secondary structures (e.g., larger values or slightly colder keys). In Memcached, an effective L2 cache prevents the shared L3 (LLC) from being overwhelmed by traffic. During the transition from 1v1 to 4v4, the L2 cache acts as a protective shield for each individual core, keeping the core-specific data close and minimizing the latency penalty before requests are forced out to the shared LLC.
+4. Last Level Cache (LLC) - The “Warm Cache” Phenomenon
+A fascinating observation is the inverse relationship between system load and LLC miss percentage:
+
+1v1: 
+17.78
+%
+17.78%
+ miss rate
+4v4: 
+3.34
+%
+3.34%
+ miss rate
+Root Cause: In low-load scenarios (1v1), cache lines are more susceptible to being evicted by the OS or background tasks before they are accessed again. Under heavy parallel load (4v4), the massive volume of concurrent requests to the same Memcached key space keeps the shared L3 cache “warm”. The data is accessed so frequently that it never gets a chance to be evicted, drastically improving the LLC hit rate.
+
+5. TLB (Translation Lookaside Buffer) Efficiency
+The dTLB miss rate is virtually zero across all tests (max 
+0.02
+%
+0.02%
+).
+
+Root Cause: This highlights the brilliance of Memcached’s Slab Allocator. Instead of frequently calling malloc()/free(), Memcached pre-allocates large memory chunks and manages them internally. This drastically reduces memory fragmentation and maximizes TLB page reuse, effectively eliminating virtual-to-physical translation bottlenecks.
 ---
 
 ## Scenario: Performance Analysis under Different Read/Write Workloads (Set:Get Ratios)
