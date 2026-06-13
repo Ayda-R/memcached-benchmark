@@ -87,7 +87,18 @@ While the benchmark was running, we executed `perf stat` sequentially to count e
 ### Step 4: Profiling with Perf Record
 
 Simultaneously (in another test run), we captured profiling data using `perf record` to map the events to source code functions via frame pointers (`--call-graph fp`).
-
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/cycles/u,cpu_core/instructions/u,cpu_core/L1-dcache-loads/u,cpu_core/L1-dcache-load-misses/u,cpu_core/l2_rqsts.references/u,cpu_core/l2_rqsts.miss/u,cpu_core/branch-misses/u \
+-g --call-graph fp \
+-o perf_cache.data
+```
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/LLC-loads/u,cpu_core/LLC-load-misses/u,cpu_core/dTLB-loads/u,cpu_core/dTLB-load-misses/u \
+-g --call-graph fp \
+-o perf_tlb_os.data
+```
 ---
 
 ## FlameGraph Analysis (1v1 Scenario)
@@ -160,7 +171,18 @@ Concurrently with the benchmark, `perf stat` was attached to the Memcached Proce
 ### Profiling Events with `perf record` (Terminal 3)
 
 To generate FlameGraphs later, `perf record` was used to capture detailed call graphs. To avoid time-multiplexing inaccuracies due to limited hardware performance counters, this command was executed in two separate runs: one for CPU/Cache events and another for TLB/OS events.
-
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/cycles/u,cpu_core/instructions/u,cpu_core/L1-dcache-loads/u,cpu_core/L1-dcache-load-misses/u,cpu_core/l2_rqsts.references/u,cpu_core/l2_rqsts.miss/u,cpu_core/branch-misses/u \
+-g --call-graph fp \
+-o perf_cache.data
+```
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/LLC-loads/u,cpu_core/LLC-load-misses/u,cpu_core/dTLB-loads/u,cpu_core/dTLB-load-misses/u \
+-g --call-graph fp \
+-o perf_tlb_os.data
+```
 ### FlameGraph Analysis (1v4 Scenario)
 
 #### Last Level Cache Misses - The Memory Wall
@@ -228,7 +250,18 @@ Concurrently with the benchmark, we run `perf stat -p $(pidof memcached)` to mon
 To generate FlameGraphs for deep function-level analysis, we use `perf record -p $(pidof memcached) -g --call-graph fp`. This samples the call stack of the application. Like `perf stat`, it is executed in two separate runs to group relevant events:
 - Captures cache-related events and outputs to `perf_cache.data`.
 - Captures TLB/Branch events and outputs to `perf_tlb_os.data`.
-
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/cycles/u,cpu_core/instructions/u,cpu_core/L1-dcache-loads/u,cpu_core/L1-dcache-load-misses/u,cpu_core/l2_rqsts.references/u,cpu_core/l2_rqsts.miss/u,cpu_core/branch-misses/u \
+-g --call-graph fp \
+-o perf_cache.data
+```
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/LLC-loads/u,cpu_core/LLC-load-misses/u,cpu_core/dTLB-loads/u,cpu_core/dTLB-load-misses/u \
+-g --call-graph fp \
+-o perf_tlb_os.data
+```
 ### FlameGraph Analysis (4v1 Scenario)
 
 #### CPU Cycles
@@ -297,7 +330,18 @@ Simultaneously with the benchmark, we ran `perf stat` attached to the memcached 
 
 While the load was being generated, we captured detailed profiling data in this terminal to generate FlameGraphs:
 Command Explanation: `perf record -p $(pidof memcached)` attaches to the memcached process. The `-e` flag specifies the target events (split into Cache/Core and TLB/OS groups). The critical part is `-g --call-graph fp`, which records the call stacks using frame pointers, enabling us to build accurate FlameGraphs. The output is saved to `.data` files (e.g., `perf_cache.data`).
-
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/cycles/u,cpu_core/instructions/u,cpu_core/L1-dcache-loads/u,cpu_core/L1-dcache-load-misses/u,cpu_core/l2_rqsts.references/u,cpu_core/l2_rqsts.miss/u,cpu_core/branch-misses/u \
+-g --call-graph fp \
+-o perf_cache.data
+```
+```bash
+sudo perf record -p $(pidof memcached) \
+-e cpu_core/LLC-loads/u,cpu_core/LLC-load-misses/u,cpu_core/dTLB-loads/u,cpu_core/dTLB-load-misses/u \
+-g --call-graph fp \
+-o perf_tlb_os.data
+```
 ### FlameGraph Analysis (4v4 Scenario)
 
 #### CPU Cycles
