@@ -479,7 +479,33 @@ taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary 
 
 **Concurrent Performance Profiling:**
 Exactly while the benchmark is running, we execute `perf stat` commands in Terminal 2 to capture the hardware performance counters of the Memcached process.
-![equal-terminal2](images4/get-set-ratio/equal-terminal2.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/cycles/u \
+  -e cpu_core/instructions/u \
+  -e cpu_core/branch-misses/u \
+  -e cpu_core/L1-dcache-loads/u \
+  -e cpu_core/L1-dcache-load-misses/u
+```
+![equal-terminal2-1](images4/get-set-ratio/equal-part1.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/l2_rqsts.references/u \
+  -e cpu_core/l2_rqsts.miss/u \
+  -e cpu_core/LLC-loads/u \
+  -e cpu_core/LLC-load-misses/u
+```
+![equal-terminal2-2](images4/get-set-ratio/equal-part2.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/dTLB-stores/u \
+  -e cpu_core/dTLB-store-misses/u \
+  -e cpu_core/LLC-stores/u \
+  -e cpu_core/LLC-store-misses/u \
+  -e cpu_core/L1-dcache-stores/u
+```
+![equal-terminal2-3](images4/get-set-ratio/equal-part3.png)
+
 
 ---
 
@@ -494,8 +520,32 @@ taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary 
 
 **Concurrent Performance Profiling:**
 While the read-heavy benchmark is actively running, we capture both high-level statistical counters and deep-level execution graphs. We use `perf stat` to capture aggregated hardware performance metrics during the workload execution.
-![read-heavy-terminal2](images4/get-set-ratio/read-heavy-terminal2.png)
-
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/cycles/u \
+  -e cpu_core/instructions/u \
+  -e cpu_core/branch-misses/u \
+  -e cpu_core/L1-dcache-loads/u \
+  -e cpu_core/L1-dcache-load-misses/u
+```
+![read-heavy-terminal2-1](images4/get-set-ratio/read-heavy-part1.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/l2_rqsts.references/u \
+  -e cpu_core/l2_rqsts.miss/u \
+  -e cpu_core/LLC-loads/u \
+  -e cpu_core/LLC-load-misses/u
+```
+![read-heavy-terminal2-2](images4/get-set-ratio/read-heavy-part2.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/dTLB-stores/u \
+  -e cpu_core/dTLB-store-misses/u \
+  -e cpu_core/LLC-stores/u \
+  -e cpu_core/LLC-store-misses/u \
+  -e cpu_core/L1-dcache-stores/u
+```
+![read-heavy-terminal2-3](images4/get-set-ratio/read-heavy-part3.png)
 ---
 
 ### 3. Write-Heavy Workload (9:1 Set:Get Ratio) - Workflow and Execution
@@ -509,8 +559,32 @@ taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary 
 
 **Concurrent Performance Profiling:**
 While the write-heavy benchmark is actively running, we capture both high-level statistical counters and deep-level execution graphs. We use `perf stat` to capture aggregated hardware performance metrics during the workload execution.
-![write-heavy-terminal2](images4/get-set-ratio/write-heavy-terminal2.png)
-
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/cycles/u \
+  -e cpu_core/instructions/u \
+  -e cpu_core/branch-misses/u \
+  -e cpu_core/L1-dcache-loads/u \
+  -e cpu_core/L1-dcache-load-misses/u
+```
+![write-heavy-terminal2-1](images4/get-set-ratio/write-heavy-part1.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/l2_rqsts.references/u \
+  -e cpu_core/l2_rqsts.miss/u \
+  -e cpu_core/LLC-loads/u \
+  -e cpu_core/LLC-load-misses/u
+```
+![write-heavy-terminal2-2](images4/get-set-ratio/write-heavy-part2.png)
+```bash
+sudo perf stat -p $(pidof memcached) \
+  -e cpu_core/dTLB-stores/u \
+  -e cpu_core/dTLB-store-misses/u \
+  -e cpu_core/LLC-stores/u \
+  -e cpu_core/LLC-store-misses/u \
+  -e cpu_core/L1-dcache-stores/u
+```
+![write-heavy-terminal2-3](images4/get-set-ratio/write-heavy-part3.png)
 ---
 
 ### Set:Get Ratios Performance Summary
