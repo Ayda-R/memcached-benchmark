@@ -589,37 +589,89 @@ sudo perf stat -p $(pidof memcached) \
 
 ### Set:Get Ratios Performance Summary
 
-| Event | Read-Heavy (1:9) | Equal/Balanced (1:1) | Write-Heavy (9:1) |
+| Performance Event | Read-Heavy (GET > SET) | Equal (GET = SET) | Write-Heavy (SET > GET) |
 | :--- | :--- | :--- | :--- |
-| `cycles` | $40,439,539,669$ | $54,078,259,853$ | $64,620,762,977$ |
-| `instructions` | $71,103,345,661$ | $92,500,623,303$ | $113,670,987,062$ |
-| `L1-dcache-loads` | $25,846,290,418$ | $33,399,036,450$ | $40,881,558,603$ |
-| `L1-icache-load-misses` | $5,844,659,095$ | $7,177,263,698$ | $8,186,898,016$ |
-| `LLC-loads` | $65,535,744$ | $75,265,721$ | $85,386,970$ |
-| `LLC-load-misses` | $4,906,255$ | $8,590,467$ | $11,701,405$ |
-| `dTLB-loads` | $25,641,383,090$ | $33,176,499,430$ | $40,506,007,394$ |
-| `dTLB-load-misses` | $2,311,198$ | $5,020,793$ | $7,076,021$ |
-| `branch-misses` | $9,744,145$ | $25,748,934$ | $14,984,178$ |
-| **LLC miss rate** | $7.49\%$ | $11.41\%$ | $13.70\%$ |
-| **dTLB miss rate** | $0.01\%$ | $0.02\%$ | $0.02\%$ |
+| **cycles/u** | $26,402,126,012$ | $34,850,583,294$ | $38,641,960,590$ |
+| **instructions/u** | $43,302,772,486$ | $54,767,775,520$ | $65,889,009,675$ |
+| **branch-misses/u** | $7,309,470$ | $20,580,859$ | $10,113,464$ |
+| **L1-dcache-loads/u** | $11,211,994,770$ | $14,270,023,109$ | $17,224,255,236$ |
+| **L1-dcache-load-misses/u** | $452,617,043$ ($4.04\%$) | $473,076,739$ ($3.32\%$) | $465,350,447$ ($2.70\%$) |
+| **l2_rqsts.references/u** | $5,486,427,207$ | $6,331,097,500$ | $6,876,100,952$ |
+| **l2_rqsts.miss/u** | $351,117,256$ | $536,168,459$ | $582,060,983$ |
+| **LLC-loads/u** | $73,407,817$ | $95,565,348$ | $94,194,579$ |
+| **LLC-load-misses/u** | $6,567,114$ ($8.95\%$) | $16,375,146$ ($17.14\%$) | $14,838,850$ ($15.75\%$) |
+| **L1-dcache-stores/u** | $6,767,070,583$ | $8,358,530,480$ | $9,910,169,226$ |
+| **dTLB-stores/u** | $6,765,358,105$ | $8,359,115,187$ | $9,912,520,119$ |
+| **dTLB-store-misses/u** | $5,513$ | $374,387$ | $1,177,612$ |
+| **LLC-stores/u** | $9,516,105$ | $19,892,245$ | $30,430,062$ |
+| **LLC-store-misses/u** | $1,267$ | $331$ | $384$ |
 
-### Hardware Event Analysis across Set:Get Ratios
 
-This section analyzes the impact of different Read/Write ratios on the CPU and memory subsystem using `perf stat` hardware counters. The tests cover Read-Heavy ($10\%$ SET, $90\%$ GET), Balanced ($50\%$ SET, $50\%$ GET), and Write-Heavy ($90\%$ SET, $10\%$ GET) workloads.
+1. Execution Complexity (Instructions & Cycles)
 
-#### 1. Computational Overhead (Cycles & Instructions)
-There is a clear, linear increase in both `cycles/u` and `instructions/u` as the workload shifts from read-heavy to write-heavy.
-- **Reason:** In Memcached, a GET operation is relatively inexpensive, primarily involving a hash table lookup. Conversely, a SET operation requires memory allocation (slab allocator), hash table updates, locking mechanisms, and potentially LRU eviction logic. This inherent complexity results in the Write-Heavy scenario executing roughly $60\%$ more instructions than the Read-Heavy scenario.
+Observation: Write-Heavy executes the highest number of instructions (
+∼
+65.8
+𝐵
+∼65.8B
+) and cycles, while Read-Heavy executes the least (
+∼
+43.3
+𝐵
+∼43.3B
+).
+Reason: Processing a SET command in Memcached is inherently more complex. It requires memory allocation via the slab allocator, updating internal metadata, managing eviction (LRU lists), and acquiring locks. A GET command is a simpler hash table lookup and read operation.
+2. Branch Predictor Confusion (branch-misses)
 
-#### 2. Cache Hierarchy Performance (L1 & LLC)
-- **L1 Cache:** `L1-dcache-loads` scale proportionally with the number of instructions executed. The higher computational demand of SET operations naturally drives more frequent L1 data cache accesses.
-- **Last Level Cache (LLC):** The `LLC-load-misses/u` rate reveals a significant trend, increasing from $7.49\%$ (Read-Heavy) to $13.70\%$ (Write-Heavy).
-- **Reason:** Read-heavy workloads benefit from high temporal locality; repeatedly accessing the same set of “hot” keys keeps them populated in the LLC. Write-heavy workloads constantly introduce new data (and potentially evict old data), fetching new memory addresses that are not currently cached, thereby significantly increasing the LLC miss rate.
+Observation: The Equal (1:1) scenario has a massive spike in branch misses (
+∼
+20.5
+𝑀
+∼20.5M
+), double the amount in Write-Heavy and triple that of Read-Heavy.
+Reason: The CPU’s branch predictor relies on historical patterns. In pure read or write scenarios, the execution path is predictable. In an Equal scenario, the application constantly alternates between read and write code paths. This unpredictability breaks hardware branch prediction, causing pipeline flushes and performance degradation.
+3. Cache Thrashing (LLC-loads & LLC-load-misses)
 
-#### 3. Memory Translation (dTLB)
-While the absolute number of `dTLB-loads` increases alongside L1 cache accesses, the `dTLB-load-misses/u` rate remains exceptionally low across all scenarios ($0.01\%$ to $0.02\%$).
-- **Reason:** This indicates that the operating system’s page tables and Memcached’s memory management are highly efficient, likely benefiting from HugePages or optimal slab allocation, preventing memory translation from becoming a bottleneck even under heavy write pressure.
+Observation: The Equal scenario suffers the highest LLC load misses (
+∼
+16.3
+𝑀
+∼16.3M
+ / 
+17.14
+%
+17.14%
+). Read-Heavy performs best in LLC (
+8.95
+%
+8.95%
+).
+Reason: Mixing reads and writes causes Cache Thrashing. Writes modify data and metadata, invalidating cache lines, while reads try to fetch them. This constant push-and-pull evicts useful data from the Last Level Cache much faster than a uniform workload, leading to higher miss rates.
+4. Memory Translation Overhead (dTLB-stores & misses)
 
-#### 4. Branch Predictability
-Interestingly, `branch-misses/u` peaks in the Balanced (1:1) scenario (approx. $25.7$ million) rather than the Write-Heavy scenario (approx. $14.9$ million).
-- **Reason:** Modern CPU branch predictors excel at recognizing consistent patterns (like executing mostly GET paths or mostly SET paths). The Balanced scenario presents a randomized $50/50$ split of read and write requests, breaking predictable execution flows and forcing the CPU’s branch predictor to miscalculate more frequently compared to the more homogenous Read-Heavy and Write-Heavy extremes.
+Observation: Write-Heavy has a catastrophic number of dTLB-store-misses (
+∼
+1.17
+𝑀
+∼1.17M
+), compared to only 
+5
+,
+513
+5,513
+ in Read-Heavy.
+Reason: The Data Translation Lookaside Buffer (dTLB) caches virtual-to-physical memory mappings. Writing data (especially allocating new slabs) frequently touches new or unmapped memory pages. The OS must step in to resolve these page faults and update the TLB. Reads, however, usually access existing, already-mapped memory, resulting in near-zero TLB misses.
+5. L1 & L2 Cache Pressure (Stores vs. Loads)
+
+Observation: Write-Heavy dominates in L1-dcache-stores (
+∼
+9.9
+𝐵
+∼9.9B
+) and l2_rqsts.miss (
+∼
+582
+𝑀
+∼582M
+).
+Reason: Writing payloads into Memcached pushes massive amounts of data down the cache hierarchy. The L1 data cache gets quickly filled with new data, forcing evictions to L2, which in turn causes L2 misses when fetching metadata.
