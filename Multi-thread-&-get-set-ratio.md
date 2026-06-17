@@ -574,4 +574,3 @@ sudo perf stat -p $(pidof memcached) \
 
 - **Observation:** Write-Heavy dominates in L1-dcache-stores ($\approx 9.9$B) and l2_rqsts.miss ($\approx 582$M).
 - **Reason:** Writing payloads into Memcached pushes massive amounts of data down the cache hierarchy. The L1 data cache gets quickly filled with new data, forcing evictions to L2, which in turn causes L2 misses when fetching metadata.
-```
