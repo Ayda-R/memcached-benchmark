@@ -34,7 +34,6 @@ The selected events with the `u/` suffix (User-space) measure various aspects of
 - `dTLB-loads/u`, `dTLB-load-misses/u`, `dTLB-stores/u` & `dTLB-store-misses/u`: Data TLB performance in virtual-to-physical address translation for both memory read and write accesses.
 - `branch-misses/u`: Branch prediction failures causing pipeline flushes.
 
-> **Note on Precision:** CPUs feature a limited number of Hardware Performance Counters. Requesting too many simultaneous events forces `perf` to use Time Multiplexing, resulting in estimated values (indicated by $<100\%$ time coverage). By splitting the events into two distinct groups, it was ensured that the hardware counter limits were not exceeded, guaranteeing that all metrics were recorded with $100\%$ absolute precision, eliminating statistical estimations.
 
 ---
 
