@@ -2,6 +2,17 @@
 
 ---
 
+## Overview of Profiling Scenarios
+
+This document presents a deep-dive performance analysis of Memcached using Hardware Performance Counters and FlameGraphs. The profiling is divided into two primary categories to evaluate different aspects of the system:
+
+1. **Concurrency and Scalability Scenarios (s1c1 to s4c4):** Evaluates how Memcached scales across multiple threads and CPU cores, focusing on locking contention, cache locality, and IPC (Instructions Per Cycle) degradation under different client-server thread topologies.
+2. **Workload Characteristic Scenarios (Set:Get Ratios):** Analyzes the architectural impact of varying Read/Write ratios (Read-Heavy, Balanced, Write-Heavy) on single-thread execution, focusing on branch prediction failures, cache thrashing, and TLB overhead.
+
+**Primary Goal:** To identify hardware-level bottlenecks (Memory Wall, CPU pipelines, Cache hierarchy) in an in-memory Key-Value store under diverse operational stress conditions on a modern Hybrid CPU architecture.
+
+---
+
 ## Hardware Topology Analysis
 
 ![System Topology](images4/topology.png)
@@ -16,10 +27,11 @@ The environment utilizes a hybrid processor architecture featuring $12$ Processi
 
 The selected events with the `u/` suffix (User-space) measure various aspects of CPU performance:
 - `cycles/u` & `instructions/u`: CPU cycles and executed instructions (used to calculate IPC and core efficiency).
-- `L1-dcache-loads/u`: L1 data cache accesses, indicating the volume of data processing.
+- `L1-dcache-loads/u`, `L1-dcache-load-misses/u` & `L1-dcache-stores/u`: L1 data cache accesses (loads, misses, and stores), indicating the volume of data processing.
 - `L1-icache-load-misses/u`: L1 instruction cache misses, showing delays in instruction fetching.
-- `LLC-loads/u` & `LLC-load-misses/u`: Last Level Cache (L3) accesses and misses. LLC misses result in high-latency RAM access.
-- `dTLB-loads/u` & `dTLB-load-misses/u`: Data TLB performance in virtual-to-physical address translation.
+- `l2_rqsts.references/u` & `l2_rqsts.miss/u`: Level-2 cache requests and misses, acting as the bridge between L1 and LLC.
+- `LLC-loads/u`, `LLC-load-misses/u`, `LLC-stores/u` & `LLC-store-misses/u`: Last Level Cache (L3) accesses and misses for both load and store operations. LLC misses result in high-latency RAM access.
+- `dTLB-loads/u`, `dTLB-load-misses/u`, `dTLB-stores/u` & `dTLB-store-misses/u`: Data TLB performance in virtual-to-physical address translation for both memory read and write accesses.
 - `branch-misses/u`: Branch prediction failures causing pipeline flushes.
 - `cs:u` & `page-faults:u`: Context switches and page faults to monitor OS-level interruptions.
 
@@ -27,7 +39,7 @@ The selected events with the `u/` suffix (User-space) measure various aspects of
 
 ---
 
-## Overall Purpose of the Scenarios
+## Part 1: Concurrency and Scalability Scenarios (Overall Purpose)
 
 The primary goal of these $4$ scenarios is to evaluate the scalability and architectural behavior of Memcached under varying workloads. 
 
@@ -43,7 +55,6 @@ The primary goal of these $4$ scenarios is to evaluate the scalability and archi
 ## Scenario 1: 1 Server Thread vs. 1 Client Thread (1v1)
 
 ### Step 1: Initializing the Memcached Server (Terminal 1)
-
 ```bash
 taskset -c 2 memcached -p 11211 -t 1 -u root
 ```
@@ -52,7 +63,6 @@ We start the Memcached server as the root user on port $11211$, strictly limitin
 - **CPU Topology Context:** We used `taskset -c 2` to pin the process to Processing Unit (PU) $2$. According to our hardware topology (`lstopo`), PU $2$ is located on Core L$1$, which is a Performance Core (P-Core). Pinning the process ensures cache locality (L1/L2 caches) and prevents the OS scheduler from migrating the process, which would pollute the CPU cache.
 
 ### Step 2: Generating Load with Memtier Benchmark (Terminal 4)
-
 ```bash
 taskset -c 8 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 1 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 ```
@@ -99,23 +109,22 @@ sudo perf record -p $(pidof memcached) \
 -g --call-graph fp \
 -o perf_tlb_os.data
 ```
----
 
-## FlameGraph Analysis (1v1 Scenario)
+### FlameGraph Analysis (1v1 Scenario)
 
-### 1. CPU Cycles Analysis
+#### 1. CPU Cycles Analysis
 
 [![1v1-flamegraph-cycles](images4/multi-thread/1flame_cache_cpu_core_cycles_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/1flame_cache_cpu_core_cycles_u.svg)
 - **Main Hotspot:** The `drive_machine` function, leading into `process_command` and `assoc_find`.
 - **Reason & Functionality:** Memcached uses an event-driven architecture. `drive_machine` is the core event loop. The CPU spends most of its time in `process_command` (parsing client requests like GET/SET) and `assoc_find` (looking up the key in the hash table). This is a sign of a healthy architecture where CPU cycles are spent on the core business logic rather than overhead.
 
-### 2. Last Level Cache (LLC) Misses Analysis
+#### 2. Last Level Cache (LLC) Misses Analysis
 
 [![1v1-flamegraph-llc-miss](images4/multi-thread/1flame_cache_cpu_core_LLC-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/1flame_cache_cpu_core_LLC-load-misses_u.svg)
 - **Main Hotspot:** The `assoc_find` function.
 - **Reason & Functionality:** `assoc_find` traverses the large Memcached hash table. Due to the random access nature of key lookups, the required memory addresses are rarely found in the CPU’s Last-Level Cache (L3). This results in Cache Misses, forcing the CPU to fetch data directly from the slower Main Memory (RAM), which is the primary performance bottleneck for in-memory stores.
 
-### 3. Data TLB Misses Analysis
+#### 3. Data TLB Misses Analysis
 
 [![1v1-flamegraph-dtlb-miss](images4/multi-thread/1flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)](https://raw.githack.com/Ayda-R/memcached-benchmark/refs/heads/main/images4/multi-thread/1flame_tlb_os_cpu_core_dTLB-load-misses_u.svg)
 - **Main Hotspot:** Item retrieval (`do_item_get`) and lookup functions (`assoc_find`).
@@ -128,7 +137,6 @@ sudo perf record -p $(pidof memcached) \
 In this scenario, the goal is to evaluate the performance of a single server core (Memcached) under high load generated by multiple client threads.
 
 ### Server Setup (Terminal 1)
-
 ```bash
 taskset -c 2 memcached -p 11211 -t 1 -u root
 ```
@@ -137,7 +145,6 @@ Existing services were stopped first. Then, Memcached was launched using `taskse
 - Core number $2$ is a Performance Core (P-Core). We pin the server here to ensure it gets maximum processing power and full access to the large L3 cache.
 
 ### Client Setup (Terminal 4)
-
 ```bash
 taskset -c 8,9,10,11 memtier_benchmark -s 127.0.0.1 -p 11211 -P memcache_binary -t 4 -c 50 -n 100000 --ratio=1:1 --key-pattern=R:R
 ```
@@ -183,6 +190,7 @@ sudo perf record -p $(pidof memcached) \
 -g --call-graph fp \
 -o perf_tlb_os.data
 ```
+
 ### FlameGraph Analysis (1v4 Scenario)
 
 #### Branch Misses - Pipeline Stalls
@@ -252,6 +260,7 @@ sudo perf record -p $(pidof memcached) \
 -g --call-graph fp \
 -o perf_tlb_os.data
 ```
+
 ### FlameGraph Analysis (4v1 Scenario)
 
 #### LLC Misses
@@ -320,6 +329,7 @@ sudo perf record -p $(pidof memcached) \
 -g --call-graph fp \
 -o perf_tlb_os.data
 ```
+
 ### FlameGraph Analysis (4v4 Scenario)
 
 #### CPU Cycles
@@ -334,87 +344,54 @@ This graph provides the baseline overview of where the CPU spends its actual exe
 
 | Event (Performance Counter) | `1 server & 1 client` | `1 server & 4 clients` | `4 servers & 1 client` | `4 servers & 4 clients` |
 | :--- | :--- | :--- | :--- | :--- |
-| **cpu_core/cycles/u** | 8,629,377,716 | 34,079,698,735 | 10,536,795,421 | 42,093,412,244 |
-| **cpu_core/instructions/u** | 15,627,840,494 | 54,743,510,244 | 15,658,560,844 | 60,505,528,305 |
-| **cpu_core/L1-dcache-loads/u** | 4,115,067,684 | 14,257,910,322 | 4,118,884,214 | 15,860,595,838 |
-| **cpu_core/L1-dcache-load-misses/u** | 210,110,486 (5.11%) | 535,256,181 (3.75%) | 242,012,720 (5.88%) | 892,941,790 (5.63%) |
-| **cpu_core/l2_rqsts.references/u** | 2,252,326,459 | 6,177,608,221 | 2,454,436,611 | 8,580,957,862 |
-| **cpu_core/l2_rqsts.miss/u** | 7,562,459 | 463,236,597 | 102,080,134 | 571,249,399 |
-| **cpu_core/branch-misses/u** | 6,192,597 | 20,058,710 | 7,365,974 | 29,592,115 |
-| **cpu_core/LLC-loads/u** | 1,746,420 | 86,546,898 | 21,920,259 | 135,906,919 |
-| **cpu_core/LLC-load-misses/u** | 310,561 (17.78%) | 10,418,000 (12.04%) | 939,749 (4.29%) | 4,543,625 (3.34%) |
-| **cpu_core/dTLB-loads/u** | 4,168,360,951 | 14,253,144,337 | 4,151,656,281 | 15,911,141,669 |
-| **cpu_core/dTLB-load-misses/u** | 82,807 (0.00%) | 768,613 (0.01%) | 937,034 (0.02%) | 2,569,623 (0.02%) |
+| **cpu_core/cycles/u** | $8,629,377,716$ | $34,079,698,735$ | $10,536,795,421$ | $42,093,412,244$ |
+| **cpu_core/instructions/u** | $15,627,840,494$ | $54,743,510,244$ | $15,658,560,844$ | $60,505,528,305$ |
+| **cpu_core/L1-dcache-loads/u** | $4,115,067,684$ | $14,257,910,322$ | $4,118,884,214$ | $15,860,595,838$ |
+| **cpu_core/L1-dcache-load-misses/u** | $210,110,486$ ($5.11\%$) | $535,256,181$ ($3.75\%$) | $242,012,720$ ($5.88\%$) | $892,941,790$ ($5.63\%$) |
+| **cpu_core/l2_rqsts.references/u** | $2,252,326,459$ | $6,177,608,221$ | $2,454,436,611$ | $8,580,957,862$ |
+| **cpu_core/l2_rqsts.miss/u** | $7,562,459$ | $463,236,597$ | $102,080,134$ | $571,249,399$ |
+| **cpu_core/branch-misses/u** | $6,192,597$ | $20,058,710$ | $7,365,974$ | $29,592,115$ |
+| **cpu_core/LLC-loads/u** | $1,746,420$ | $86,546,898$ | $21,920,259$ | $135,906,919$ |
+| **cpu_core/LLC-load-misses/u** | $310,561$ ($17.78\%$) | $10,418,000$ ($12.04\%$) | $939,749$ ($4.29\%$) | $4,543,625$ ($3.34\%$) |
+| **cpu_core/dTLB-loads/u** | $4,168,360,951$ | $14,253,144,337$ | $4,151,656,281$ | $15,911,141,669$ |
+| **cpu_core/dTLB-load-misses/u** | $82,807$ ($0.00\%$) | $768,613$ ($0.01\%$) | $937,034$ ($0.02\%$) | $2,569,623$ ($0.02\%$) |
 
-
-
-1. Execution Efficiency & IPC (Cycles vs. Instructions)
+### 1. Execution Efficiency & IPC (Cycles vs. Instructions)
 By calculating the Instructions Per Cycle (IPC = Instructions / Cycles), we can observe how the CPU execution efficiency degrades under contention:
 
-1v1 (Baseline): IPC 
-≈
-1.81
-≈1.81
-1v4 (Stress): IPC 
-≈
-1.60
-≈1.60
-4v1 (Sync Overhead): IPC 
-≈
-1.48
-≈1.48
-4v4 (Full Scale): IPC 
-≈
-1.43
-≈1.43
-Root Cause: The drop in IPC, especially in scenarios C (4v1) and D (4v4), is a direct result of Lock Contention. When multiple Memcached threads try to access the shared hash table, synchronization mechanisms (like mutexes or spinlocks) force cores to waste cycles waiting, thereby lowering the overall instruction throughput per cycle.
-2. L1 Data Cache Performance
-The L1-dcache miss rate remains remarkably stable and low across all scenarios, ranging from 
-3.75
-%
-3.75%
- to 
-5.88
-%
-5.88%
-.
+- **1v1 (Baseline):** IPC $\approx 1.81$
+- **1v4 (Stress):** IPC $\approx 1.60$
+- **4v1 (Sync Overhead):** IPC $\approx 1.48$
+- **4v4 (Full Scale):** IPC $\approx 1.43$
 
-Root Cause: Memcached’s internal data structures (primarily its hash table and linked lists for LRU) are highly optimized for spatial locality. Interestingly, the 1v4 scenario has the lowest L1 miss rate (
-3.75
-%
-3.75%
-). This happens because a single server thread is being hammered with requests, causing the hottest data to remain pinned and constantly reused in that specific core’s L1 cache.
+**Root Cause:** The drop in IPC, especially in scenarios C (4v1) and D (4v4), is a direct result of Lock Contention. When multiple Memcached threads try to access the shared hash table, synchronization mechanisms (like mutexes or spinlocks) force cores to waste cycles waiting, thereby lowering the overall instruction throughput per cycle.
 
-3. L2 Cache Performance (The Intermediary Buffer)
+### 2. L1 Data Cache Performance
+The L1-dcache miss rate remains remarkably stable and low across all scenarios, ranging from $3.75\%$ to $5.88\%$.
+
+**Root Cause:** Memcached’s internal data structures (primarily its hash table and linked lists for LRU) are highly optimized for spatial locality. Interestingly, the 1v4 scenario has the lowest L1 miss rate ($3.75\%$). This happens because a single server thread is being hammered with requests, causing the hottest data to remain pinned and constantly reused in that specific core’s L1 cache.
+
+### 3. L2 Cache Performance (The Intermediary Buffer)
 The L2 cache acts as a critical bridge between the highly localized L1 and the shared LLC. It handles the memory requests that slip through the L1 cache.
 
-Root Cause: While L1 absorbs the immediate “hot” data (like active hash table buckets), the L2 cache efficiently captures secondary structures (e.g., larger values or slightly colder keys). In Memcached, an effective L2 cache prevents the shared L3 (LLC) from being overwhelmed by traffic. During the transition from 1v1 to 4v4, the L2 cache acts as a protective shield for each individual core, keeping the core-specific data close and minimizing the latency penalty before requests are forced out to the shared LLC.
-4. Last Level Cache (LLC) - The “Warm Cache” Phenomenon
+**Root Cause:** While L1 absorbs the immediate “hot” data (like active hash table buckets), the L2 cache efficiently captures secondary structures (e.g., larger values or slightly colder keys). In Memcached, an effective L2 cache prevents the shared L3 (LLC) from being overwhelmed by traffic. During the transition from 1v1 to 4v4, the L2 cache acts as a protective shield for each individual core, keeping the core-specific data close and minimizing the latency penalty before requests are forced out to the shared LLC.
+
+### 4. Last Level Cache (LLC) - The “Warm Cache” Phenomenon
 A fascinating observation is the inverse relationship between system load and LLC miss percentage:
 
-1v1: 
-17.78
-%
-17.78%
- miss rate
-4v4: 
-3.34
-%
-3.34%
- miss rate
-Root Cause: In low-load scenarios (1v1), cache lines are more susceptible to being evicted by the OS or background tasks before they are accessed again. Under heavy parallel load (4v4), the massive volume of concurrent requests to the same Memcached key space keeps the shared L3 cache “warm”. The data is accessed so frequently that it never gets a chance to be evicted, drastically improving the LLC hit rate.
+- **1v1:** $17.78\%$ miss rate
+- **4v4:** $3.34\%$ miss rate
 
-5. TLB (Translation Lookaside Buffer) Efficiency
-The dTLB miss rate is virtually zero across all tests (max 
-0.02
-%
-0.02%
-).
+**Root Cause:** In low-load scenarios (1v1), cache lines are more susceptible to being evicted by the OS or background tasks before they are accessed again. Under heavy parallel load (4v4), the massive volume of concurrent requests to the same Memcached key space keeps the shared L3 cache “warm”. The data is accessed so frequently that it never gets a chance to be evicted, drastically improving the LLC hit rate.
 
-Root Cause: This highlights the brilliance of Memcached’s Slab Allocator. Instead of frequently calling malloc()/free(), Memcached pre-allocates large memory chunks and manages them internally. This drastically reduces memory fragmentation and maximizes TLB page reuse, effectively eliminating virtual-to-physical translation bottlenecks.
+### 5. TLB (Translation Lookaside Buffer) Efficiency
+The dTLB miss rate is virtually zero across all tests (max $0.02\%$).
+
+**Root Cause:** This highlights the brilliance of Memcached’s Slab Allocator. Instead of frequently calling `malloc()`/`free()`, Memcached pre-allocates large memory chunks and manages them internally. This drastically reduces memory fragmentation and maximizes TLB page reuse, effectively eliminating virtual-to-physical translation bottlenecks.
+
 ---
 
-## Scenario: Performance Analysis under Different Read/Write Workloads (Set:Get Ratios)
+## Part 2: Performance Analysis under Different Read/Write Workloads (Set:Get Ratios)
 
 ### Objective and Purpose
 The goal of this scenario is to evaluate Memcached’s performance and architectural behavior under varying workload characteristics. Real-world applications rarely have a static access pattern; therefore, testing different set (write) to get (read) ratios is crucial to understand system bottlenecks.
@@ -434,7 +411,7 @@ taskset -c 2 memcached -P 11211 -t 1 -u root
 
 ---
 
-### 1. Balanced Workload (50:50 Set:Get Ratio) - Workflow and Execution
+### Scenario 1: Balanced Workload (50:50 Set:Get Ratio)
 After starting the Memcached server, we utilize two additional terminals to generate the specific workload and simultaneously profile the server’s hardware events.
 
 **Client Setup & Load Generation:**
@@ -475,7 +452,7 @@ sudo perf stat -p $(pidof memcached) \
 
 ---
 
-### 2. Read-Heavy Workload (1:9 Set:Get Ratio) - Workflow and Execution
+### Scenario 2: Read-Heavy Workload (1:9 Set:Get Ratio)
 After establishing the Memcached server (pinned to P-Core $2$), we use the remaining terminals to generate a read-intensive workload and concurrently profile the server’s hardware events and execution graphs.
 
 **Client Setup & Load Generation:**
@@ -512,9 +489,10 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/L1-dcache-stores/u
 ```
 ![read-heavy-terminal2-3](images4/get-set-ratio/read-heavy-part3.png)
+
 ---
 
-### 3. Write-Heavy Workload (9:1 Set:Get Ratio) - Workflow and Execution
+### Scenario 3: Write-Heavy Workload (9:1 Set:Get Ratio)
 After establishing the Memcached server (pinned to P-Core $2$), we use the remaining terminals to generate a write-intensive workload and concurrently profile the server’s hardware events and execution graphs.
 
 **Client Setup & Load Generation:**
@@ -551,6 +529,7 @@ sudo perf stat -p $(pidof memcached) \
   -e cpu_core/L1-dcache-stores/u
 ```
 ![write-heavy-terminal2-3](images4/get-set-ratio/write-heavy-part3.png)
+
 ---
 
 ### Set:Get Ratios Performance Summary
@@ -573,71 +552,28 @@ sudo perf stat -p $(pidof memcached) \
 | **LLC-store-misses/u** | $1,267$ | $331$ | $384$ |
 
 
-1. Execution Complexity (Instructions & Cycles)
+#### 1. Execution Complexity (Instructions & Cycles)
 
-Observation: Write-Heavy executes the highest number of instructions (
-∼
-65.8
-𝐵
-∼65.8B
-) and cycles, while Read-Heavy executes the least (
-∼
-43.3
-𝐵
-∼43.3B
-).
-Reason: Processing a SET command in Memcached is inherently more complex. It requires memory allocation via the slab allocator, updating internal metadata, managing eviction (LRU lists), and acquiring locks. A GET command is a simpler hash table lookup and read operation.
-2. Branch Predictor Confusion (branch-misses)
+- **Observation:** Write-Heavy executes the highest number of instructions ($\approx 65.8$B) and cycles, while Read-Heavy executes the least ($\approx 43.3$B).
+- **Reason:** Processing a SET command in Memcached is inherently more complex. It requires memory allocation via the slab allocator, updating internal metadata, managing eviction (LRU lists), and acquiring locks. A GET command is a simpler hash table lookup and read operation.
 
-Observation: The Equal (1:1) scenario has a massive spike in branch misses (
-∼
-20.5
-𝑀
-∼20.5M
-), double the amount in Write-Heavy and triple that of Read-Heavy.
-Reason: The CPU’s branch predictor relies on historical patterns. In pure read or write scenarios, the execution path is predictable. In an Equal scenario, the application constantly alternates between read and write code paths. This unpredictability breaks hardware branch prediction, causing pipeline flushes and performance degradation.
-3. Cache Thrashing (LLC-loads & LLC-load-misses)
+#### 2. Branch Predictor Confusion (branch-misses)
 
-Observation: The Equal scenario suffers the highest LLC load misses (
-∼
-16.3
-𝑀
-∼16.3M
- / 
-17.14
-%
-17.14%
-). Read-Heavy performs best in LLC (
-8.95
-%
-8.95%
-).
-Reason: Mixing reads and writes causes Cache Thrashing. Writes modify data and metadata, invalidating cache lines, while reads try to fetch them. This constant push-and-pull evicts useful data from the Last Level Cache much faster than a uniform workload, leading to higher miss rates.
-4. Memory Translation Overhead (dTLB-stores & misses)
+- **Observation:** The Equal (1:1) scenario has a massive spike in branch misses ($\approx 20.5$M), double the amount in Write-Heavy and triple that of Read-Heavy.
+- **Reason:** The CPU’s branch predictor relies on historical patterns. In pure read or write scenarios, the execution path is predictable. In an Equal scenario, the application constantly alternates between read and write code paths. This unpredictability breaks hardware branch prediction, causing pipeline flushes and performance degradation.
 
-Observation: Write-Heavy has a catastrophic number of dTLB-store-misses (
-∼
-1.17
-𝑀
-∼1.17M
-), compared to only 
-5
-,
-513
-5,513
- in Read-Heavy.
-Reason: The Data Translation Lookaside Buffer (dTLB) caches virtual-to-physical memory mappings. Writing data (especially allocating new slabs) frequently touches new or unmapped memory pages. The OS must step in to resolve these page faults and update the TLB. Reads, however, usually access existing, already-mapped memory, resulting in near-zero TLB misses.
-5. L1 & L2 Cache Pressure (Stores vs. Loads)
+#### 3. Cache Thrashing (LLC-loads & LLC-load-misses)
 
-Observation: Write-Heavy dominates in L1-dcache-stores (
-∼
-9.9
-𝐵
-∼9.9B
-) and l2_rqsts.miss (
-∼
-582
-𝑀
-∼582M
-).
-Reason: Writing payloads into Memcached pushes massive amounts of data down the cache hierarchy. The L1 data cache gets quickly filled with new data, forcing evictions to L2, which in turn causes L2 misses when fetching metadata.
+- **Observation:** The Equal scenario suffers the highest LLC load misses ($\approx 16.3$M / $17.14\%$). Read-Heavy performs best in LLC ($8.95\%$).
+- **Reason:** Mixing reads and writes causes Cache Thrashing. Writes modify data and metadata, invalidating cache lines, while reads try to fetch them. This constant push-and-pull evicts useful data from the Last Level Cache much faster than a uniform workload, leading to higher miss rates.
+
+#### 4. Memory Translation Overhead (dTLB-stores & misses)
+
+- **Observation:** Write-Heavy has a catastrophic number of dTLB-store-misses ($\approx 1.17$M), compared to only $5,513$ in Read-Heavy.
+- **Reason:** The Data Translation Lookaside Buffer (dTLB) caches virtual-to-physical memory mappings. Writing data (especially allocating new slabs) frequently touches new or unmapped memory pages. The OS must step in to resolve these page faults and update the TLB. Reads, however, usually access existing, already-mapped memory, resulting in near-zero TLB misses.
+
+#### 5. L1 & L2 Cache Pressure (Stores vs. Loads)
+
+- **Observation:** Write-Heavy dominates in L1-dcache-stores ($\approx 9.9$B) and l2_rqsts.miss ($\approx 582$M).
+- **Reason:** Writing payloads into Memcached pushes massive amounts of data down the cache hierarchy. The L1 data cache gets quickly filled with new data, forcing evictions to L2, which in turn causes L2 misses when fetching metadata.
+```
